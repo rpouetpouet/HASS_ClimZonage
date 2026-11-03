@@ -466,6 +466,15 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
 
     # ─── actions appelées par les entités ───────────────────────────────────
     async def async_set_active(self, active: bool) -> None:
+        """Master switch. La réactivation lève le verrou de cycle mini.
+
+        Passer OFF ferme tous les clapets d'autorité (force) et horodate ce
+        mouvement ; sans ce nettoyage, un retour sur ON dans les 5 minutes
+        laisserait les clapets fermés alors que des pièces demandent, et
+        l'utilisateur conclurait que le système ne redémarre pas.
+        """
+        if active and not self.active:
+            self._last_toggle.clear()
         self.active = active
         await self.async_request_refresh()
 
