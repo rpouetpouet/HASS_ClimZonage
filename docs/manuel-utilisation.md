@@ -84,6 +84,7 @@ Clim Extension   climate.clim_extension   ESPHome, pont CN105, IP 192.168.42.34 
 | `sensor.clim_zonage_consigne_moteur` | La consigne réellement envoyée au gainable |
 | `sensor.clim_zonage_temperature_deportee` | La température « maison » calculée pour le gainable |
 | `sensor.clim_zonage_strategie_moteur` | `remote` ou `generator`, et si un repli est actif |
+| `button.clim_zonage_recalibrer_les_clapets` | Cycle forcé de tous les clapets (voir §4 bis) |
 
 ---
 
@@ -125,9 +126,29 @@ ce qui évite le battement des clapets.
 une panne.
 
 Si la pièce est en **prise en charge cheminée**, elle est retirée de la demande.
-Si le mode de la pièce ne correspond pas au mode global (une pièce en `heat` alors que la maison est
-en `cool`), elle est ignorée : c'est le garde-fou « mode interdit », qui évite qu'une seule pièce
-bascule tout le gainable dans la mauvaise saison.
+Si le mode de la pièce ne correspond pas au mode global, elle est réalignée automatiquement sur le
+mode de la maison : c'est le garde-fou « mode interdit », qui évite qu'une seule pièce bascule tout
+le gainable dans la mauvaise saison. **Une pièce ne peut d'ailleurs pas être réglée dans le mode
+opposé** : quand la maison est en chaud, le thermostat d'une pièce ne propose que `off` et `heat`
+(idem en froid). Le menu se met à jour tout seul au changement de saison.
+
+### 4 bis — Recalibrer les clapets (`button.clim_zonage_recalibrer_les_clapets`)
+
+Un clapet est **tout-ou-rien et ne renvoie aucune position** : son état dans Home Assistant n'est
+qu'une croyance, mise à jour à l'expiration de sa course. Si le réel a divergé — clapet déplacé à la
+main, coupure de courant pendant une course, ordre Stop — l'intégration peut croire ouvert un clapet
+fermé (et inversement).
+
+Le bouton fait alors le seul geste qui remet tout d'accord :
+
+1. **fermeture de tous les clapets**, sans attendre la durée de cycle minimum ;
+2. **attente de la course complète** (réglage `damper_course`, 80 s par défaut) ;
+3. **réouverture selon la demande courante**, verrou de cycle remis à zéro.
+
+Pendant l'opération, la boucle de décision ne touche pas aux clapets et **aucun chauffage n'est
+distribué** (une à deux minutes). Le bouton expose son état (`en_cours`, `duree_course_s`, zones
+ouvertes avant l'opération). Utilisable depuis une automatisation (`button.press`) — par exemple une
+fois par semaine la nuit.
 
 ### Étape 4 — les clapets
 

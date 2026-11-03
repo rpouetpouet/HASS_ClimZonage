@@ -23,6 +23,7 @@ from homeassistant.util import slugify
 from .const import (
     DOMAIN,
     HVAC_COOL,
+    HVAC_FAN_ONLY,
     HVAC_HEAT,
     HVAC_OFF,
     MAX_TEMP,
@@ -36,6 +37,7 @@ _MODES = {
     HVAC_OFF: HVACMode.OFF,
     HVAC_HEAT: HVACMode.HEAT,
     HVAC_COOL: HVACMode.COOL,
+    HVAC_FAN_ONLY: HVACMode.FAN_ONLY,
 }
 _MODES_REVERSE = {v: k for k, v in _MODES.items()}
 
@@ -108,6 +110,8 @@ class ZoneClimate(CoordinatorEntity[ZonageCoordinator], ClimateEntity, RestoreEn
         zdata = self._zdata
         if zdata.get("system_off") or zdata.get("mode") == HVAC_OFF:
             return HVACAction.OFF
+        if zdata.get("mode") == HVAC_FAN_ONLY:
+            return HVACAction.FAN
         if zdata.get("demand"):
             return (
                 HVACAction.HEATING
