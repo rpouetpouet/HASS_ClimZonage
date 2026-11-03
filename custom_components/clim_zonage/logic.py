@@ -101,6 +101,28 @@ def virtual_temperature(
     return sum(known) / len(known)
 
 
+def house_setpoint(
+    samples: Sequence[tuple[float | None, float | None, bool]],
+    mode: str,
+    low: float,
+    high: float,
+    step: float,
+) -> float | None:
+    """Consigne à envoyer au gainable en stratégie déportée.
+
+    C'est la **vraie consigne de maison**, pas un offset : la plus haute des
+    consignes des zones en demande en chaud (la plus basse en froid). L'unité
+    compare ensuite cette consigne à la température déportée et module d'elle-même.
+    """
+    targets = [
+        target for (_temp, target, dem) in samples if dem and target is not None
+    ]
+    if not targets:
+        return None
+    value = max(targets) if mode == HEAT else min(targets)
+    return snap(clamp(value, low, high), step)
+
+
 def fire_detected(
     chimney_temp: float | None,
     room_temp: float | None,

@@ -121,3 +121,23 @@ def test_minimum_de_bouches_et_decharge():
     }
     # pas de zone de décharge configurée : on ne plante pas
     assert apply_min_vents(zones, {"alice"}, None, 2, True) == {"alice"}
+
+
+def test_consigne_de_maison_strategie_deportee():
+    from importlib import util as _u
+
+    house_setpoint = _LOGIC.house_setpoint
+    # la plus haute consigne des zones en demande, en chaud
+    samples = [
+        (18.5, 19.5, True),
+        (18.0, 19.0, True),
+        (23.6, 19.5, False),   # SaM chauffée par la cheminée : ignorée
+    ]
+    assert house_setpoint(samples, "heat", 16, 31, 0.5) == 19.5
+    # en froid, la plus basse des consignes en demande
+    cool = [(27.0, 26.0, True), (26.5, 25.0, True), (21.0, 26.0, False)]
+    assert house_setpoint(cool, "cool", 16, 31, 0.5) == 25.0
+    # aucune zone en demande : pas de consigne inventée
+    assert house_setpoint([(20.0, 19.5, False)], "heat", 16, 31, 0.5) is None
+    # bornage au pas et aux limites de l'unité
+    assert house_setpoint([(10.0, 40.0, True)], "heat", 16, 31, 0.5) == 31.0

@@ -74,18 +74,24 @@ redémarrage.
 | `sensor.clim_zonage_consigne_moteur` | Consigne réellement envoyée au gainable |
 | `sensor.clim_zonage_temperature_deportee` | Température « maison » (zones en demande) |
 | `sensor.clim_zonage_zones_en_demande` | Nombre + noms des zones en demande |
+| `sensor.clim_zonage_strategie_moteur` | Stratégie réellement appliquée (+ `repli_actif`) |
 
 ## Stratégies moteur
 
-* **`generator` (par défaut)** — consigne = température de la pièce de reprise **+ marge**
-  (2 °C) en chaud, **− marge** en froid, tant qu'une zone demande. Le thermostat interne
-  ne peut plus arrêter la production, les clapets font la régulation.
-* **`remote`** — la consigne s'applique à la **température déportée** (la plus froide des
-  zones en demande en chaud). Nécessite un firmware ESPHome capable de recevoir une
-  température externe : `echavet/MitsubishiCN105ESPHome` avec
+* **`remote` (retenu le 03/11/2026)** — la consigne appliquée à l'unité est la **vraie consigne de
+  maison** (la plus haute des consignes des zones en demande en chaud, la plus basse en froid) et
+  l'unité régule sur la **température déportée** (§ capteur ci-dessous). Elle module d'elle-même,
+  fait des cycles longs et s'arrête seule quand la maison est satisfaite. Nécessite un firmware
+  ESPHome capable de recevoir une température externe : `echavet/MitsubishiCN105ESPHome` avec
   `remote_temperature_source` (le composant natif `mitsubishi_cn105` ne le permet pas).
-  Vérifié compilable sur ESP8266 `d1_mini` 4 Mo : flash 42,5 %, RAM 42,8 %, en plus des
-  capteurs Hz compresseur / température extérieure.
+  Vérifié sur ESP8266 `d1_mini` 4 Mo : flash 46,4 %, RAM 44,3 %.
+  **Garde-fou** : si la température déportée disparaît (ESP hors ligne, entité `unavailable`),
+  l'intégration repasse d'elle-même en `generator` et le signale (`sensor.clim_zonage_strategie_moteur`
+  → `repli_actif: true`), au lieu de laisser l'unité retomber en silence sur sa sonde interne.
+* **`generator`** — consigne = température de la pièce de reprise **+ marge** (2 °C) en chaud,
+  **− marge** en froid, tant qu'une zone demande. Le thermostat interne ne peut plus arrêter la
+  production, les clapets font la régulation. Fonctionne avec le firmware natif ; c'est aussi le
+  mode de repli automatique.
 
 La stratégie se change dans les options, sans redéploiement.
 

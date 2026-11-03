@@ -73,6 +73,7 @@ from .logic import (
     fire_detected,
     fire_takes_over,
     generator_setpoint,
+    house_setpoint,
     snap,
     virtual_temperature,
     zone_demands,
@@ -105,6 +106,7 @@ class ZonageState:
     open_vents: int = 0
     engine_setpoint: float | None = None
     virtual_temp: float | None = None
+    strategy: str = ""
 
 
 def build_zones(raw_zones: list[dict]) -> list[Zone]:
@@ -312,27 +314,37 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         # 6. Moteur : mode, consigne, vitesse
         setpoint: float | None = None
         virtual: float | None = virtual_temperature(samples, mode)
+        strategy = opts.get(CONF_STRATEGY)
+        effective = strategy
 
         if mode == HVAC_FAN_ONLY:
             setpoint = None
             await self._async_engine_fan_only()
             await self._async_set_fan(choose_fan(open_vents, opts.get(CONF_FAN_THRESHOLDS)))
         elif demanding:
-            if opts.get(CONF_STRATEGY) == STRATEGY_REMOTE and engine_mode != mode:
-                # stratégie déportée : l'unité régule sur la température virtuelle
-                reference = virtual
+            # Stratégie déportée : le capteur peut disparaître (ESP hors ligne,
+            # entité unavailable). Sans valeur déportée l'unité retomberait en
+            # silence sur sa propre sonde — on repasse donc explicitement en
+            # consigne génératrice jusqu'au retour de la mesure.
+            if strategy == STRATEGY_REMOTE and virtual is None:
+                effective = STRATEGY_GENERATOR
+                _LOGGER.warning(
+                    "Température déportée indisponible : repli sur la consigne génératrice"
+                )
+            if effective == STRATEGY_REMOTE:
+                setpoint = house_setpoint(samples, mode, MIN_TEMP, MAX_TEMP, TEMP_STEP)
             else:
                 reference = self._float_state(fire_zone.temp_sensor) if fire_zone else None
                 if reference is None:
                     reference = self._attr(self.engine, "current_temperature")
-            setpoint = generator_setpoint(
-                float(reference) if reference is not None else None,
-                mode,
-                float(opts.get(CONF_MARGIN)),
-                MIN_TEMP,
-                MAX_TEMP,
-                TEMP_STEP,
-            )
+                setpoint = generator_setpoint(
+                    float(reference) if reference is not None else None,
+                    mode,
+                    float(opts.get(CONF_MARGIN)),
+                    MIN_TEMP,
+                    MAX_TEMP,
+                    TEMP_STEP,
+                )
             await self._async_set_engine(mode, setpoint)
             await self._async_set_fan(choose_fan(open_vents, opts.get(CONF_FAN_THRESHOLDS)))
         else:
@@ -355,6 +367,7 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
             open_vents=open_vents,
             engine_setpoint=setpoint,
             virtual_temp=virtual,
+            strategy=effective,
         )
         return self._state
 

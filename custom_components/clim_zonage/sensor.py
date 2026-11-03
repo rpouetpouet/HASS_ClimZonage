@@ -23,6 +23,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
             EngineSetpointSensor(coordinator, entry),
             VirtualTempSensor(coordinator, entry),
             DemandingZonesSensor(coordinator, entry),
+            StrategySensor(coordinator, entry),
         ]
     )
 
@@ -134,4 +135,33 @@ class DemandingZonesSensor(_Base):
             "feu": data.fire,
             "cheminee_assure_le_chauffage": data.fire_takeover,
             "systeme_actif": data.active,
+        }
+
+
+class StrategySensor(_Base):
+    """Stratégie réellement appliquée au moteur (et repli éventuel)."""
+
+    _attr_name = "Stratégie moteur"
+    _attr_icon = "mdi:source-branch"
+
+    def __init__(self, coordinator, entry):
+        super().__init__(coordinator, entry, "strategie")
+
+    @property
+    def native_value(self) -> str | None:
+        if not self.coordinator.data:
+            return None
+        return self.coordinator.data.strategy or None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        data = self.coordinator.data
+        if not data:
+            return {}
+        demande = self.coordinator.options.get("strategy")
+        return {
+            "strategie_demandee": demande,
+            "repli_actif": demande != data.strategy,
+            "temperature_deportee_disponible": data.virtual_temp is not None,
+            "consigne_envoyee": data.engine_setpoint,
         }
