@@ -167,20 +167,26 @@ def fire_takes_over(
 
 
 def apply_min_vents(
-    open_zones: Iterable[str],
+    zones_openable: Iterable[str],
     demanding_zones: Iterable[str],
     dump_zone: str | None,
     min_vents: int,
     dump_available: bool,
+    open_vents_in: Iterable[str] = (),
 ) -> set[str]:
     """Zones dont les clapets doivent être ouverts, pression statique comprise.
 
-    Si le nombre de zones en demande est inférieur au minimum de bouches, on
-    ouvre la zone de décharge (la plus grande pièce) pour ne pas étrangler le
-    réseau. `dump_available` est faux quand la décharge est elle-même trop
-    chaude (cheminée allumée) : dans ce cas on assume le débit réduit.
+    Le seuil se compte en **clapets physiques**, pas en zones : la salle à
+    manger a deux volets et pèse donc deux fois plus sur le débit réel.
+
+    Si le nombre de volets ouvert par les seules zones en demande est inférieur
+    au minimum, on ouvre la zone de décharge (la plus grande pièce) pour ne pas
+    étrangler le réseau. `dump_available` est faux quand la décharge est
+    elle-même trop chaude (cheminée allumée) : dans ce cas on assume le débit
+    réduit.
     """
     wanted = set(demanding_zones)
-    if dump_zone and dump_available and len(wanted) < min_vents:
+    open_vents = len(list(open_vents_in))
+    if dump_zone and dump_available and open_vents < min_vents:
         wanted.add(dump_zone)
     return wanted

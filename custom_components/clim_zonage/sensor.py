@@ -65,7 +65,12 @@ class OpenVentsSensor(_Base):
             "zones_ouvertes": [
                 z["name"] for z in data.zones.values() if z.get("open")
             ],
-            "motorisation": "Shelly 2PM profile=cover, course 67 s",
+            "clapets_ouverts": {
+                z["name"]: z.get("clapets_ouverts", 0)
+                for z in data.zones.values()
+                if z.get("open")
+            },
+            "comptage": "clapets physiques (la salle à manger en a deux)",
         }
 
 

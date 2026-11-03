@@ -234,12 +234,15 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
             # l'utilisateur doit voir ce qui redémarrera, et `zone_modes` /
             # `zone_targets` restent intacts pour la réactivation.
             zdata_off: dict[str, dict[str, Any]] = {}
+            open_off = 0
             for zone in self.zones:
                 states = [self.hass.states.get(d) for d in zone.dampers]
-                is_open = any(
-                    s is not None and s.state in (STATE_OPEN, STATE_OPENING)
+                n_open = sum(
+                    1
                     for s in states
+                    if s is not None and s.state in (STATE_OPEN, STATE_OPENING)
                 )
+                open_off += n_open
                 zdata_off[zone.uid] = {
                     "name": zone.name,
                     # Le mode AFFICHÉ reste celui mémorisé : si on exposait `off`
@@ -252,7 +255,8 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
                     "target": self.zone_target(zone.uid),
                     "demand": False,
                     "fire_room": zone.fire_room,
-                    "open": is_open,
+                    "open": n_open > 0,
+                    "clapets_ouverts": n_open,
                     "system_off": True,
                 }
             self._state = ZonageState(
@@ -260,7 +264,7 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
                 mode=HVAC_OFF,
                 zones=zdata_off,
                 strategy="off",
-                open_vents=sum(1 for z in zdata_off.values() if z.get("open")),
+                open_vents=open_off,
             )
             return self._state
 
@@ -347,6 +351,12 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
             dump_zone.uid if dump_zone else None,
             int(opts.get(CONF_MIN_VENTS)),
             dump_available,
+            open_vents_in=[
+                damper
+                for zone in self.zones
+                if zone.uid in demanding
+                for damper in zone.dampers
+            ],
         )
         if mode == HVAC_FAN_ONLY:
             wanted = {z.uid for z in self.zones if self.is_zone_active(z.uid)}
@@ -356,20 +366,22 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         else:
             await self._async_apply_dampers(wanted)
 
-        # 5. Bouches réellement ouvertes (mesuré, pas commandé)
+        # 5. Bouches réellement ouvertes (mesuré, pas commandé) — on compte les
+        #    CLAPETS physiques : la salle à manger en a deux, donc deux bouches.
         open_vents = 0
+        open_zone_names: list[str] = []
         for zone in self.zones:
-            states = [
-                self.hass.states.get(d) for d in zone.dampers
-            ]
-            if any(
-                s is not None and s.state in (STATE_OPEN, STATE_OPENING)
+            states = [self.hass.states.get(d) for d in zone.dampers]
+            zone_open = [
+                s
                 for s in states
-            ):
-                open_vents += 1
-                zdata[zone.uid]["open"] = True
-            else:
-                zdata[zone.uid]["open"] = False
+                if s is not None and s.state in (STATE_OPEN, STATE_OPENING)
+            ]
+            open_vents += len(zone_open)
+            zdata[zone.uid]["open"] = bool(zone_open)
+            zdata[zone.uid]["clapets_ouverts"] = len(zone_open)
+            if zone_open:
+                open_zone_names.append(zone.name)
 
         # 6. Moteur : mode, consigne, vitesse
         setpoint: float | None = None

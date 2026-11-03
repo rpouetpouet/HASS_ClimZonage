@@ -110,17 +110,32 @@ def test_prise_en_charge_chemin_e_piece_froide():
 
 def test_minimum_de_bouches_et_decharge():
     zones = {"batcave", "sdj", "alice", "noemie", "nous", "sam"}
-    # une seule zone en demande → on ajoute la décharge
-    assert apply_min_vents(zones, {"alice"}, "sam", 2, True) == {"alice", "sam"}
-    # la décharge est trop chaude (cheminée) → on ne l'ouvre pas
-    assert apply_min_vents(zones, {"alice"}, "sam", 2, False) == {"alice"}
-    # assez de zones en demande → décharge inutile
-    assert apply_min_vents(zones, {"alice", "noemie"}, "sam", 2, True) == {
+    # une seule zone en demande, un seul clapet → on ajoute la décharge
+    assert apply_min_vents(zones, {"alice"}, "sam", 2, True, ["cover.valvealice"]) == {
         "alice",
-        "noemie",
+        "sam",
     }
+    # la décharge est trop chaude (cheminée) → on ne l'ouvre pas
+    assert apply_min_vents(zones, {"alice"}, "sam", 2, False, ["cover.valvealice"]) == {
+        "alice"
+    }
+    # assez de clapets ouverts par la demande → décharge inutile
+    assert apply_min_vents(
+        zones,
+        {"alice", "noemie"},
+        "sam",
+        2,
+        True,
+        ["cover.valvealice", "cover.valvenoemie"],
+    ) == {"alice", "noemie"}
+    # la salle à manger compte pour DEUX clapets : ouverte seule, elle suffit
+    assert apply_min_vents(
+        zones, {"sam"}, "sam", 2, True, ["cover.sam_east", "cover.sam_west"]
+    ) == {"sam"}
     # pas de zone de décharge configurée : on ne plante pas
-    assert apply_min_vents(zones, {"alice"}, None, 2, True) == {"alice"}
+    assert apply_min_vents(zones, {"alice"}, None, 2, True, ["cover.valvealice"]) == {
+        "alice"
+    }
 
 
 def test_consigne_de_maison_strategie_deportee():

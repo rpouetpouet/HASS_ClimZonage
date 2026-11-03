@@ -128,7 +128,7 @@ def _global_schema(current: dict) -> vol.Schema:
             ),
             vol.Required(CONF_MIN_VENTS, default=cur[CONF_MIN_VENTS]): selector.NumberSelector(
                 selector.NumberSelectorConfig(
-                    min=1, max=6, step=1, mode=selector.NumberSelectorMode.BOX
+                    min=1, max=7, step=1, mode=selector.NumberSelectorMode.BOX
                 )
             ),
             vol.Required(CONF_MARGIN, default=cur[CONF_MARGIN]): selector.NumberSelector(
