@@ -202,15 +202,17 @@ class SondesIndisponiblesSensor(_Base):
 
 
 class ProchainCycleSensor(_Base):
-    """Échéance du prochain tour de décision de la boucle.
+    """Échéance à laquelle un clapet pourra bouger.
 
-    Horodatage (device_class `timestamp`) : Home Assistant l'affiche en temps
-    relatif (« dans 12 s »). La boucle tourne aussi sur événement (changement de
-    sonde ou de clapet), donc cette échéance est le **pire cas** : le prochain
-    calcul aura lieu au plus tard à cet instant.
+    Ce n'est pas le prochain tour de boucle (qui a lieu toutes les 30 s) mais le
+    **premier instant où un mouvement est réellement possible** : si un clapet
+    est sous verrou `min_cycle` (20 min), c'est l'expiration du plus proche
+    verrou ; si aucun n'est verrouillé, c'est le prochain tour.
+
+    Horodatage : Home Assistant l'affiche en temps relatif (« dans 8 min »).
     """
 
-    _attr_name = "Prochain cycle"
+    _attr_name = "Prochaine fenêtre clapet"
     _attr_icon = "mdi:timer-sand"
     _attr_device_class = SensorDeviceClass.TIMESTAMP
 
@@ -219,15 +221,29 @@ class ProchainCycleSensor(_Base):
 
     @property
     def native_value(self):
-        return self.coordinator.next_cycle
+        return self.coordinator.next_damper_window or self.coordinator.next_cycle
 
     @property
     def extra_state_attributes(self) -> dict:
         coord = self.coordinator
+        maintenant = coord.last_cycle
+        min_cycle_s = float(coord.options.get("min_cycle") or 0)
+        zones = {}
+        for zone in coord.zones:
+            dernier = coord._last_toggle_wall.get(zone.uid)
+            if dernier is None:
+                zones[zone.name] = {"debloque_dans_s": 0, "verrouille": False}
+                continue
+            deblocage = dernier + __import__("datetime").timedelta(seconds=min_cycle_s)
+            reste = (deblocage - maintenant).total_seconds() if maintenant else 0
+            zones[zone.name] = {
+                "debloque_dans_s": max(0, round(reste)),
+                "verrouille": reste > 0,
+            }
         return {
             "periode_s": coord.cycle_seconds,
-            "derniere_boucle": coord.last_cycle.isoformat()
-            if coord.last_cycle
-            else None,
-            "min_cycle_s": coord.options.get("min_cycle"),
+            "min_cycle_s": min_cycle_s,
+            "prochain_tour": coord.next_cycle.isoformat() if coord.next_cycle else None,
+            "derniere_boucle": maintenant.isoformat() if maintenant else None,
+            "zones": zones,
         }

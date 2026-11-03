@@ -176,6 +176,10 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         # État interne (non exposé)
         self._state = ZonageState()
         self._last_toggle: dict[str, float] = {}
+        # même information en horloge murale : monotonic sert au verrou, celui-ci
+        # sert à dire à l'utilisateur QUAND un clapet pourra rebouger.
+        self._last_toggle_wall: dict[str, datetime] = {}
+        self.next_damper_window: datetime | None = None
         self._fire = False
         self._fire_takeover = False
         self.fire_force = False  # forcé par le switch « chauffage assuré par le feu »
@@ -729,6 +733,16 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         self.next_cycle = self.last_cycle + datetime.timedelta(
             seconds=self.cycle_seconds
         )
+        # Prochaine échéance à laquelle un clapet POURRA bouger : c'est le premier
+        # verrou `min_cycle` qui expire, sinon le prochain tour de boucle.
+        min_cycle_s = float(opts.get(CONF_MIN_CYCLE))
+        verrous = [
+            self._last_toggle_wall[z.uid] + datetime.timedelta(seconds=min_cycle_s)
+            for z in self.zones
+            if z.uid in self._last_toggle_wall
+        ]
+        futurs = [v for v in verrous if v > self.last_cycle]
+        self.next_damper_window = min(futurs) if futurs else self.next_cycle
         return self._state
 
     # ─── écritures ──────────────────────────────────────────────────────────
@@ -786,6 +800,7 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
                 blocking=False,
             )
             self._last_toggle[zone.uid] = now
+            self._last_toggle_wall[zone.uid] = dt_util.utcnow()
             _LOGGER.debug("Zone %s : %s", zone.name, "ouverture" if should_open else "fermeture")
 
     async def _async_set_engine(self, mode: str, setpoint: float | None) -> None:

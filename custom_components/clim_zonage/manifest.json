@@ -8,6 +8,6 @@
   "iot_class": "local_push",
   "integration_type": "hub",
   "quality_scale": "custom",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "requirements": []
 }
