@@ -1,0 +1,125 @@
+# Dashboard « Chauffage » — exemple prêt à coller
+#
+# À adapter : les entity_id des zones sont dérivés du nom que vous leur donnez
+# (climate.clim_zonage_<zone>), et `climate.clim_master` est l'unité chez l'auteur.
+#
+# Nouveau dashboard → ⋮ → Éditeur de code brut → coller.
+
+title: Chauffage
+views:
+  # ─── Vue 1 : pilotage ────────────────────────────────────────────────────
+  - title: Pilotage
+    path: pilotage
+    icon: mdi:hvac
+    cards:
+      - type: entities
+        title: Système
+        show_header_toggle: false
+        entities:
+          - entity: switch.clim_zonage_systeme_actif
+            name: Système actif (master)
+          - entity: select.clim_zonage_mode_global
+            name: Mode
+          - entity: binary_sensor.clim_zonage_chauffage_en_demande
+            name: Une zone demande
+          - entity: sensor.clim_zonage_zones_en_demande
+            name: Zones en demande
+          - entity: sensor.clim_zonage_bouches_ouvertes
+            name: Bouches ouvertes
+          - type: attribute
+            entity: sensor.clim_zonage_zones_en_demande
+            attribute: zones
+            name: Détail
+
+      - type: thermostat
+        entity: climate.clim_master
+        name: Gainable — vue unité (consigne et vitesse réelles)
+
+      - type: entities
+        title: Ce que le cerveau envoie
+        entities:
+          - entity: sensor.clim_zonage_consigne_moteur
+            name: Consigne moteur
+          - entity: sensor.clim_zonage_temperature_deportee
+            name: Température déportée
+          - type: attribute
+            entity: climate.clim_master
+            attribute: current_temperature
+            name: Sonde de reprise (pièce de l'unité)
+
+      - type: entities
+        title: Cheminée
+        entities:
+          - entity: binary_sensor.clim_zonage_cheminee_feu_detecte
+            name: Feu détecté (panache)
+          - entity: binary_sensor.clim_zonage_cheminee_chauffage_assure_par_le_feu
+            name: Le feu chauffe la pièce
+          - entity: switch.clim_zonage_cheminee_chauffage_assure_par_le_feu
+            name: Forcer / interdire
+          - type: attribute
+            entity: binary_sensor.clim_zonage_cheminee_chauffage_assure_par_le_feu
+            attribute: temperature_piece
+            name: Température de la pièce
+
+  # ─── Vue 2 : zones ──────────────────────────────────────────────────────
+  - title: Zones
+    path: zones
+    icon: mdi:home-thermometer
+    cards:
+      - type: thermostat
+        entity: climate.clim_zonage_salle_a_manger
+      - type: thermostat
+        entity: climate.clim_zonage_batcave
+      - type: thermostat
+        entity: climate.clim_zonage_salle_de_jeux
+      - type: thermostat
+        entity: climate.clim_zonage_alice
+      - type: thermostat
+        entity: climate.clim_zonage_noemie
+      - type: thermostat
+        entity: climate.clim_zonage_nous
+
+      - type: entities
+        title: État des clapets
+        entities:
+          - cover.valvebatcave
+          - cover.salle_de_jeux_valvesdj
+          - cover.valvealice
+          - cover.valvenoemie
+          - cover.valvenous
+          - cover.sam_east
+          - cover.sam_west
+
+  # ─── Vue 3 : diagnostic ────────────────────────────────────────────────
+  - title: Diagnostic
+    path: diagnostic
+    icon: mdi:chart-line
+    cards:
+      - type: history-graph
+        title: Températures vs consigne moteur
+        hours_to_show: 24
+        entities:
+          - entity: sensor.clim_zonage_consigne_moteur
+          - entity: sensor.clim_zonage_temperature_deportee
+          - type: attribute
+            entity: climate.clim_master
+            attribute: current_temperature
+            name: Sonde de reprise
+
+      - type: history-graph
+        title: Zones
+        hours_to_show: 24
+        entities:
+          - entity: climate.clim_zonage_salle_a_manger
+          - entity: climate.clim_zonage_batcave
+          - entity: climate.clim_zonage_alice
+          - entity: climate.clim_zonage_noemie
+          - entity: climate.clim_zonage_nous
+          - entity: climate.clim_zonage_salle_de_jeux
+
+      - type: history-graph
+        title: Cheminée (panache) et bouches ouvertes
+        hours_to_show: 24
+        entities:
+          - entity: binary_sensor.clim_zonage_cheminee_feu_detecte
+          - entity: sensor.clim_zonage_bouches_ouvertes

@@ -1,0 +1,123 @@
+"""Tests de la logique pure du zonage (aucune dépendance Home Assistant)."""
+
+from __future__ import annotations
+
+import importlib.util
+from pathlib import Path
+
+# On charge logic.py par chemin : le paquet custom_components.clim_zonage
+# importe Home Assistant, absent de l'environnement de test.
+_SPEC = importlib.util.spec_from_file_location(
+    "zlogic",
+    Path(__file__).resolve().parents[1]
+    / "custom_components"
+    / "clim_zonage"
+    / "logic.py",
+)
+_LOGIC = importlib.util.module_from_spec(_SPEC)
+_SPEC.loader.exec_module(_LOGIC)
+
+apply_min_vents = _LOGIC.apply_min_vents
+choose_fan = _LOGIC.choose_fan
+fire_detected = _LOGIC.fire_detected
+fire_takes_over = _LOGIC.fire_takes_over
+generator_setpoint = _LOGIC.generator_setpoint
+snap = _LOGIC.snap
+virtual_temperature = _LOGIC.virtual_temperature
+zone_demands = _LOGIC.zone_demands
+
+
+def test_snap_sur_le_pas_reel():
+    assert snap(22.34, 0.5) == 22.5
+    assert snap(22.24, 0.5) == 22.0
+    assert snap(22.5, 0.0) == 22.5
+
+
+def test_demande_avec_bande_morte():
+    # consigne 19.5, bande 0.7 → demande sous 18.8 seulement
+    assert zone_demands(18.7, 19.5, "heat", 0.7) is True
+    assert zone_demands(18.8, 19.5, "heat", 0.7) is False
+    assert zone_demands(20.0, 19.5, "heat", 0.7) is False
+    # en froid, l'inverse
+    assert zone_demands(27.0, 26.0, "cool", 0.7) is True
+    assert zone_demands(26.5, 26.0, "cool", 0.7) is False
+    # une zone éteinte ne demande jamais
+    assert zone_demands(10.0, 19.5, "off", 0.7) is False
+    # sonde absente → pas de décision
+    assert zone_demands(None, 19.5, "heat", 0.7) is False
+
+
+def test_vitesse_selon_bouches():
+    th = {"low": 2, "medium": 4, "high": 7}
+    assert choose_fan(0, th) == "auto"
+    assert choose_fan(1, th) == "low"
+    assert choose_fan(2, th) == "low"
+    assert choose_fan(3, th) == "medium"
+    assert choose_fan(5, th) == "high"
+
+
+def test_consigne_generatrice_decouplee_de_la_piece_chaude():
+    # La pièce de reprise est à 23 °C, une zone demande encore : en chaud la
+    # consigne doit rester AU-DESSUS de 23 pour que l'unité produise.
+    sp = generator_setpoint(23.0, "heat", 2.0, 16, 31, 0.5)
+    assert sp == 25.0
+    assert sp > 23.0
+    # bornage haut
+    assert generator_setpoint(30.5, "heat", 2.0, 16, 31, 0.5) == 31.0
+    # en froid, la marge va vers le bas
+    assert generator_setpoint(24.0, "cool", 2.0, 16, 31, 0.5) == 22.0
+    # sans référence, pas de consigne inventée
+    assert generator_setpoint(None, "heat", 2.0, 16, 31, 0.5) is None
+
+
+def test_temperature_deportee_ne_moyenne_que_les_zones_en_demande():
+    # SaM chaude (cheminée) non demandeuse : elle ne doit PAS tirer la valeur
+    samples = [
+        (23.6, 19.5, False),   # salle à manger chauffée par le feu
+        (20.4, 19.5, True),    # Alice en demande
+        (19.7, 19.5, True),    # Noémie en demande
+        (24.0, 19.5, False),
+    ]
+    assert virtual_temperature(samples, "heat") == 19.7
+    # si aucune zone ne demande : moyenne de ce qui est connu (information)
+    idle = [(20.0, 19.5, False), (22.0, 19.5, False)]
+    assert virtual_temperature(idle, "heat") == 21.0
+
+
+def test_detection_feu_hysteresis():
+    # sous le seuil : pas de feu
+    assert fire_detected(22.0, 21.0, False, 5.0, 2.0) is False
+    # au-dessus : feu
+    assert fire_detected(44.0, 23.0, False, 5.0, 2.0) is True
+    # feu en cours : on garde tant que l'écart reste >= 2
+    assert fire_detected(26.0, 23.0, True, 5.0, 2.0) is True
+    assert fire_detected(24.0, 23.0, True, 5.0, 2.0) is False
+    # sonde absente : on ne change pas d'avis
+    assert fire_detected(None, 23.0, True, 5.0, 2.0) is True
+
+
+def test_prise_en_charge_chemin_e_piece_froide():
+    # Feu allumé MAIS pièce à 18.5 < 19 → le gainable doit continuer de chauffer
+    assert fire_takes_over(True, 18.5, False, 19.0, 18.0) is False
+    # pièce à 19.0 → le feu peut chauffer seul
+    assert fire_takes_over(True, 19.0, False, 19.0, 18.0) is True
+    # déjà pris en charge : on garde jusqu'à 18.0 (bûche qui couve)
+    assert fire_takes_over(True, 18.2, True, 19.0, 18.0) is True
+    assert fire_takes_over(True, 17.9, True, 19.0, 18.0) is False
+    # pas de feu → pas de prise en charge
+    assert fire_takes_over(False, 23.0, True, 19.0, 18.0) is False
+
+
+def test_minimum_de_bouches_et_decharge():
+    zones = {"batcave", "sdj", "alice", "noemie", "nous", "sam"}
+    # une seule zone en demande → on ajoute la décharge
+    assert apply_min_vents(zones, {"alice"}, "sam", 2, True) == {"alice", "sam"}
+    # la décharge est trop chaude (cheminée) → on ne l'ouvre pas
+    assert apply_min_vents(zones, {"alice"}, "sam", 2, False) == {"alice"}
+    # assez de zones en demande → décharge inutile
+    assert apply_min_vents(zones, {"alice", "noemie"}, "sam", 2, True) == {
+        "alice",
+        "noemie",
+    }
+    # pas de zone de décharge configurée : on ne plante pas
+    assert apply_min_vents(zones, {"alice"}, None, 2, True) == {"alice"}

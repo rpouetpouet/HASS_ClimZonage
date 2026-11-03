@@ -1,0 +1,101 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Clim Zonage — moteur",
+        "description": "Choisissez le gainable à piloter et, si elle existe, la sonde de la cheminée (elle servira de DÉTECTEUR de feu, jamais de mesure d'ambiance).",
+        "data": {
+          "engine_entity": "Gainable (climate)",
+          "fireplace_sensor": "Sonde de cheminée (facultative)"
+        }
+      },
+      "zone_menu": {
+        "title": "Zones",
+        "description": "{count} zone(s) configurée(s). Ajouter une zone ou terminer.",
+        "data": { "next": "Action" }
+      },
+      "add_zone": {
+        "title": "Ajouter une zone",
+        "description": "Une zone = un thermostat, une sonde d'ambiance, un ou plusieurs clapets.",
+        "data": {
+          "name": "Nom de la zone",
+          "temp_sensor": "Sonde de température",
+          "dampers": "Clapets (cover)",
+          "fire_room": "C'est la pièce de la cheminée",
+          "dump_zone": "Zone de décharge (bypass pression statique)"
+        }
+      }
+    },
+    "error": {
+      "engine_not_found": "Cette entité climate n'existe pas.",
+      "need_one_zone": "Ajoutez au moins une zone avant de terminer."
+    },
+    "abort": {
+      "no_zone": "Aucune zone configurée."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Clim Zonage — réglages",
+        "menu_options": {
+          "global": "Réglages globaux",
+          "add_zone": "Ajouter une zone",
+          "edit_zone": "Modifier une zone",
+          "delete_zone": "Supprimer une zone"
+        }
+      },
+      "global": {
+        "title": "Réglages globaux",
+        "data": {
+          "strategy": "Stratégie moteur",
+          "deadband": "Bande morte (°C)",
+          "min_cycle": "Durée de cycle minimum (s)",
+          "min_vents": "Bouches ouvertes minimum",
+          "margin": "Marge de la consigne génératrice (°C)",
+          "fallback_heat": "Consigne de repli — chaud (°C)",
+          "fallback_cool": "Consigne de repli — froid (°C)",
+          "fire_delta_on": "Feu : écart de détection (°C)",
+          "fire_delta_off": "Feu : écart de descente (°C)",
+          "fire_temp_min": "Feu : température mini de la pièce pour chauffer seul (°C)",
+          "fire_temp_off": "Feu : température de désarmement (°C)"
+        }
+      },
+      "add_zone": {
+        "title": "Ajouter une zone",
+        "data": {
+          "name": "Nom de la zone",
+          "temp_sensor": "Sonde de température",
+          "dampers": "Clapets (cover)",
+          "fire_room": "C'est la pièce de la cheminée",
+          "dump_zone": "Zone de décharge (bypass pression statique)"
+        }
+      },
+      "edit_zone": {
+        "title": "Modifier une zone",
+        "data": { "uid": "Zone" }
+      },
+      "delete_zone": {
+        "title": "Supprimer une zone",
+        "data": { "uid": "Zone" }
+      }
+    },
+    "abort": {
+      "no_zone": "Aucune zone configurée."
+    }
+  },
+  "selector": {
+    "strategy": {
+      "options": {
+        "generator": "Consigne génératrice (le moteur produit dès qu'une zone demande)",
+        "remote": "Température déportée (le moteur régule sur la maison)"
+      }
+    },
+    "zone_menu": {
+      "options": {
+        "add": "Ajouter une zone",
+        "finish": "Terminer"
+      }
+    }
+  }
+}

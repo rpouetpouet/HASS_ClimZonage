@@ -1,0 +1,141 @@
+"""Thermostat d'une zone.
+
+L'entité est volontairement mince : toute la décision est dans le coordinateur.
+Ici on ne fait que traduire l'état du coordinateur en attributs HA, et les
+actions de l'utilisateur en appels au coordinateur.
+"""
+
+from __future__ import annotations
+
+from homeassistant.components.climate import (
+    ClimateEntity,
+    ClimateEntityFeature,
+    HVACAction,
+    HVACMode,
+)
+from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
+from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import slugify
+
+from .const import (
+    DOMAIN,
+    HVAC_COOL,
+    HVAC_HEAT,
+    HVAC_OFF,
+    MAX_TEMP,
+    MIN_TEMP,
+    NAME,
+    TEMP_STEP,
+)
+from .coordinator import ZonageCoordinator
+
+_MODES = {
+    HVAC_OFF: HVACMode.OFF,
+    HVAC_HEAT: HVACMode.HEAT,
+    HVAC_COOL: HVACMode.COOL,
+}
+_MODES_REVERSE = {v: k for k, v in _MODES.items()}
+
+
+async def async_setup_entry(hass, entry, async_add_entities):
+    coordinator: ZonageCoordinator = hass.data[DOMAIN][entry.entry_id]
+    async_add_entities(
+        [ZoneClimate(coordinator, entry, zone) for zone in coordinator.zones]
+    )
+
+
+class ZoneClimate(CoordinatorEntity[ZonageCoordinator], ClimateEntity, RestoreEntity):
+    """Thermostat d'une zone du gainable."""
+
+    _attr_has_entity_name = True
+    _attr_temperature_unit = UnitOfTemperature.CELSIUS
+    _attr_target_temperature_step = TEMP_STEP
+    _attr_min_temp = MIN_TEMP
+    _attr_max_temp = MAX_TEMP
+    _attr_supported_features = ClimateEntityFeature.TARGET_TEMPERATURE
+    _attr_hvac_modes = [HVACMode.OFF, HVACMode.HEAT, HVACMode.COOL]
+
+    def __init__(self, coordinator: ZonageCoordinator, entry, zone):
+        super().__init__(coordinator)
+        self._entry = entry
+        self.zone = zone
+        self._attr_name = zone.name
+        self._attr_unique_id = f"{entry.entry_id}_{zone.uid}"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.entry_id)},
+            name=NAME,
+            manufacturer="rpouetpouet",
+            model="Zonage gainable réversible",
+        )
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last = await self.async_get_last_state()
+        if last is not None:
+            if last.state in (HVACMode.OFF, HVACMode.HEAT, HVACMode.COOL):
+                self.coordinator.zone_modes[self.zone.uid] = _MODES_REVERSE[last.state]
+            temp = last.attributes.get(ATTR_TEMPERATURE)
+            if temp is not None:
+                try:
+                    self.coordinator.zone_targets[self.zone.uid] = float(temp)
+                except (TypeError, ValueError):
+                    pass
+        self.coordinator.zone_modes.setdefault(self.zone.uid, HVAC_OFF)
+        self.coordinator.zone_targets.setdefault(self.zone.uid, 19.5)
+
+    @property
+    def _zdata(self) -> dict:
+        if not self.coordinator.data or not self.coordinator.data.zones:
+            return {}
+        return self.coordinator.data.zones.get(self.zone.uid, {})
+
+    @property
+    def current_temperature(self) -> float | None:
+        return self._zdata.get("temp")
+
+    @property
+    def target_temperature(self) -> float | None:
+        return self._zdata.get("target")
+
+    @property
+    def hvac_mode(self) -> HVACMode:
+        return _MODES.get(self._zdata.get("mode", HVAC_OFF), HVACMode.OFF)
+
+    @property
+    def hvac_action(self) -> HVACAction | None:
+        zdata = self._zdata
+        if zdata.get("mode") == HVAC_OFF:
+            return HVACAction.OFF
+        if zdata.get("demand"):
+            return (
+                HVACAction.HEATING
+                if zdata.get("mode") == HVAC_HEAT
+                else HVACAction.COOLING
+            )
+        return HVACAction.IDLE
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        zdata = self._zdata
+        return {
+            "demande": zdata.get("demand"),
+            "clapet_ouvert": zdata.get("open"),
+            "cheminee_assure_le_chauffage": self.coordinator.data.fire_takeover
+            if self.coordinator.data
+            else None,
+            "clapets": self.zone.dampers,
+            "sonde": self.zone.temp_sensor,
+        }
+
+    async def async_set_temperature(self, **kwargs) -> None:
+        temp = kwargs.get(ATTR_TEMPERATURE)
+        if temp is None:
+            return
+        await self.coordinator.async_set_zone_target(self.zone.uid, float(temp))
+
+    async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
+        await self.coordinator.async_set_zone_mode(
+            self.zone.uid, _MODES_REVERSE.get(hvac_mode, HVAC_OFF)
+        )
