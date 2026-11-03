@@ -156,28 +156,20 @@ Vérifié en direct — appui du bouton, cycle suivant :
 Soit **6 zones / 7 clapets** réaffirmés en un cycle de 30 s, sans coupure. Le délai maximum
 d'application est le `cycle_seconds` (30 s par défaut), exposé par l'attribut `delai_max_s`.
 
-Le bouton fait alors le seul geste qui remet tout d'accord :
-
-1. **fermeture de tous les clapets**, sans attendre la durée de cycle minimum ;
-2. **attente de la course complète** (réglage `damper_course`, 80 s par défaut) ;
-3. **réouverture selon la demande courante**, verrou de cycle remis à zéro.
-
-Pendant l'opération, la boucle de décision ne touche pas aux clapets et **aucun chauffage n'est
-distribué** (une à deux minutes). Le bouton expose son état (`en_cours`, `duree_course_s`, zones
-ouvertes avant l'opération). Utilisable depuis une automatisation (`button.press`) — par exemple une
-fois par semaine la nuit.
+Utilisable depuis une automatisation (`button.press`) — par exemple une fois par semaine la nuit.
 
 ### Étape 4 — les clapets
 
 Les clapets des pièces en demande sont ouverts, les autres fermés. Deux garde-fous :
 
-- **Durée de cycle minimum 300 s** : un clapet qui vient de bouger ne rebouge pas avant 5 minutes
-  (sa course réelle est de 67 s, deux mouvements rapprochés l'useraient et fausseraient l'état).
-- **Minimum de bouches (2)** : le seuil se compte en **clapets physiques** — la salle à manger en a
-  deux, elle pèse donc deux bouches, et le total du réseau est de **7**. Si les pièces en demande
-  n'ouvrent pas assez de volets, la **zone de décharge** (la salle à manger) est ouverte en plus pour
-  ne pas étrangler le réseau de gaines. Elle est laissée fermée si elle est déjà au-dessus de sa
-  consigne, ou si le feu est en prise en charge.
+- **Durée de cycle minimum** (réglage `min_cycle`, 1200 s ici) : un clapet qui vient de bouger ne
+  rebouge pas avant ce délai — sa course réelle est de 67 s, deux mouvements rapprochés l'useraient
+  et fausseraient l'état.
+- **Minimum de bouches (`min_vents`, réglé à 1)** : le seuil se compte en **clapets physiques** — la
+  salle à manger en a deux, elle pèse donc deux bouches, et le total du réseau est de **7**. Si les
+  pièces en demande n'ouvrent pas assez de volets, la **zone de décharge** (la salle à manger) est
+  ouverte en plus pour ne pas étrangler le réseau de gaines. Elle est laissée fermée si elle est déjà
+  au-dessus de sa consigne, ou si le feu est en prise en charge.
 
 ⚠️ **À quoi sert vraiment ce minimum.** Le gainable **n'adapte pas son débit au nombre de bouches
 ouvertes** : il régule sur la température (reprise contre consigne) et son ventilateur n'a que
