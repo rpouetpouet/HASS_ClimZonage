@@ -157,9 +157,21 @@ Les clapets des pièces en demande sont ouverts, les autres fermés. Deux garde-
 
 - **Durée de cycle minimum 300 s** : un clapet qui vient de bouger ne rebouge pas avant 5 minutes
   (sa course réelle est de 67 s, deux mouvements rapprochés l'useraient et fausseraient l'état).
-- **Minimum de bouches (2)** : si une seule pièce demande, la **zone de décharge** (la salle à
-  manger) est ouverte elle aussi pour ne pas étrangler le réseau de gaines. Elle est laissée fermée
-  si elle est déjà au-dessus de sa consigne, ou si le feu est en prise en charge.
+- **Minimum de bouches (2)** : le seuil se compte en **clapets physiques** — la salle à manger en a
+  deux, elle pèse donc deux bouches, et le total du réseau est de **7**. Si les pièces en demande
+  n'ouvrent pas assez de volets, la **zone de décharge** (la salle à manger) est ouverte en plus pour
+  ne pas étrangler le réseau de gaines. Elle est laissée fermée si elle est déjà au-dessus de sa
+  consigne, ou si le feu est en prise en charge.
+
+⚠️ **À quoi sert vraiment ce minimum.** Le gainable **n'adapte pas son débit au nombre de bouches
+ouvertes** : il régule sur la température (reprise contre consigne) et son ventilateur n'a que
+quelques vitesses fixes — en `auto` il suit la charge thermique, pas la perte de charge des gaines.
+L'adaptation du débit vient donc de **nous**, par la vitesse de ventilation (1-2 bouches → `low`,
+3-4 → `medium`, 5-7 → `high`). Le minimum de bouches n'est qu'un **filet de sécurité acoustique** :
+il évite le cas extrême d'une seule bouche à vitesse minimale, où la vitesse d'air dans le gaine et
+le souffle au diffuseur deviennent audibles. Son coût est réel (il peut chauffer une pièce qui n'a
+rien demandé) : si aucune sifflement n'est constaté avec une seule bouche ouverte, le passer à **1**
+rend le système purement piloté par la demande.
 
 ### Étape 5 — le gainable
 
