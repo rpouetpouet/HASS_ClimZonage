@@ -110,22 +110,25 @@ def test_prise_en_charge_chemin_e_piece_froide():
 
 
 def test_demande_avec_hysteresis():
-    # En chaud, consigne 20.0, bande 0.7 : démarrage sous 19.3, arrêt à 20.0
+    # Chaud, consigne 20.0, demi-bande 0.7 → démarrage sous 19.3, arrêt à 20.7
     assert zone_demands(19.2, 20.0, "heat", 0.7, False) is True
-    assert zone_demands(19.4, 20.0, "heat", 0.7, False) is False  # pas encore entré
-    # une fois entrée, elle continue jusqu'à la consigne
+    assert zone_demands(19.4, 20.0, "heat", 0.7, False) is False   # pas encore entrée
+    # une fois entrée, elle tient jusqu'à consigne + bande (bande symétrique)
     assert zone_demands(19.4, 20.0, "heat", 0.7, True) is True
     assert zone_demands(19.9, 20.0, "heat", 0.7, True) is True
-    assert zone_demands(20.0, 20.0, "heat", 0.7, True) is False   # arrêt à la consigne
-    # et ne redémarre qu'en repassant sous 19.3 (vraie hystérésis de 0.7)
+    assert zone_demands(20.0, 20.0, "heat", 0.7, True) is True     # la cible ne l'arrête plus
+    assert zone_demands(20.5, 20.0, "heat", 0.7, True) is True
+    assert zone_demands(20.7, 20.0, "heat", 0.7, True) is False    # arrêt au-dessus de la cible
+    # et ne redémarre qu'en repassant sous 19.3 (bande totale 1.4 °C)
     assert zone_demands(19.5, 20.0, "heat", 0.7, False) is False
     assert zone_demands(19.2, 20.0, "heat", 0.7, False) is True
 
-    # En froid, miroir : démarrage au-dessus de 20.7, arrêt à 20.0
+    # Froid, miroir : démarrage au-dessus de 20.7, arrêt sous 19.3
     assert zone_demands(20.8, 20.0, "cool", 0.7, False) is True
     assert zone_demands(20.5, 20.0, "cool", 0.7, False) is False
     assert zone_demands(20.5, 20.0, "cool", 0.7, True) is True
-    assert zone_demands(20.0, 20.0, "cool", 0.7, True) is False
+    assert zone_demands(20.0, 20.0, "cool", 0.7, True) is True
+    assert zone_demands(19.2, 20.0, "cool", 0.7, True) is False
 
     # Pas de demande hors chaud/froid, ou sans mesure
     assert zone_demands(19.0, 20.0, "off", 0.7, True) is False

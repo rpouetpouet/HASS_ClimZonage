@@ -113,26 +113,34 @@ l'écart, qui protège).
 
 ### Étape 3 — la demande de chaque pièce
 
-C'est une **hystérésis à deux seuils**, pas un simple seuil :
+C'est une **hystérésis symétrique autour de la consigne** : `deadband` est la demi-largeur de la bande.
 
-- en **chaud** : la pièce *entre* en demande sous `consigne − 0.7 °C`, et n'en *sort* qu'à la
-  **consigne** ;
-- en **froid** : elle entre en demande au-dessus de `consigne + 0.7 °C`, et n'en sort qu'à la
-  **consigne**.
+- en **chaud** : la pièce *entre* en demande sous `consigne − 0,7` et n'en *sort* qu'au-dessus de
+  `consigne + 0,7` ;
+- en **froid** : elle entre au-dessus de `consigne + 0,7` et sort sous `consigne − 0,7`.
 
-Exemple avec une consigne de 20.0 °C et une bande de 0.7 : démarrage à **19.3**, arrêt à **20.0**.
-La pièce monte donc réellement jusqu'à sa consigne, et il faut reperdre 0.7 °C avant qu'elle
-redemande. Chaque thermostat expose les deux seuils (`seuil_demarrage`, `seuil_arret`) — la loi de
-commande est lisible depuis le dashboard, plus besoin de la deviner.
+Exemple, consigne 20,0 et bande 0,7 : démarrage à **19,3**, arrêt à **20,7**. Chaque thermostat expose
+les deux seuils (`seuil_demarrage`, `seuil_arret`) — la loi de commande est lisible depuis le
+dashboard, plus besoin de la deviner.
 
-⚠️ **Pourquoi deux seuils et pas un.** Un seuil unique démarre *et* arrête au même point : réévalué à
+⚠️ **Pourquoi pas un simple seuil.** Un seuil unique démarre *et* arrête au même point : réévalué à
 chaque cycle (30 s) et à chaque changement de sonde, il bascule sans arrêt quand la pièce flotte
-autour du seuil (les sondes ont une résolution de 0.1 °C). Et chaque bascule fait passer la consigne
-du moteur de la consigne de maison à la **consigne de repli** — donc commande le compresseur en
-marche/arrêt. L'hystérésis supprime ce battement par construction.
+autour du seuil (sondes à 0,1 °C de résolution). Et chaque bascule fait passer la consigne du moteur
+de la consigne de maison au **repli** — donc commande le compresseur en marche/arrêt.
 
-**Conséquence importante à retenir** : avec une consigne de 19.5, une pièce n'entre en demande
-qu'en **dessous de 18.8 °C**. Si toutes les pièces sont à 20 °C, le système est à l'arrêt — ce n'est
+⚠️ **Pourquoi la bande est symétrique et pas arrêtée à la consigne.** L'unité a son **propre
+différentiel de thermostat** (mesuré autour de 0,5 à 1 °C) : avec un arrêt pile à la consigne, la
+demande tombait, le moteur repassait en repli, et il ne restait plus assez d'écart pour que l'unité
+redémarre — la pièce plafonnait **0,5 °C sous sa cible** (mesuré : 18,9 à 19,4 pour une consigne de
+20,0). En tenant la demande jusqu'à `consigne + 0,7`, le moteur reste armé sur la vraie consigne et
+l'unité produit tant que son propre seuil est franchi : la pièce converge vers la cible.
+
+**Conséquence à assumer** : une pièce légèrement **au-dessus** de sa consigne reste « en demande »
+(donc clapet ouvert, action « chauffe ») jusqu'à +0,7. C'est le prix pour atteindre la cible en réel.
+Pour resserrer, baisser `deadband` (0,35 donne une bande totale de 0,7 °C centrée sur la cible).
+
+**Conséquence importante à retenir** : avec une consigne de 19,5, une pièce n'entre en demande
+qu'en **dessous de 18,8 °C**. Si toutes les pièces sont à 20 °C, le système est à l'arrêt — ce n'est
 pas une panne.
 
 Si la pièce est en **prise en charge cheminée**, elle est retirée de la demande.

@@ -32,29 +32,34 @@ def zone_demands(
     deadband: float,
     was_demanding: bool = False,
 ) -> bool:
-    """Une zone demande-t-elle ? **Hystérésis à deux seuils**, pas un simple seuil.
+    """Une zone demande-t-elle ? **Hystérésis symétrique autour de la consigne**.
 
-    En chaud : une zone *entre* en demande sous `consigne − bande` (19.3 pour une
-    consigne de 20.0 avec 0.7 de bande) et n'en *sort* qu'à la consigne (20.0).
-    En froid, c'est le miroir : démarrage au-dessus de `consigne + bande`, arrêt à
-    la consigne.
+    La bande est centrée sur la consigne : `deadband` est la demi-largeur.
+    En chaud, une zone entre en demande sous `consigne − bande` et n'en sort
+    qu'au-dessus de `consigne + bande`. En froid, c'est le miroir.
 
-    Pourquoi deux seuils : un comparateur à seuil unique démarre **et** arrête au
-    même point. Réévalué à chaque cycle (30 s) et à chaque changement de sonde, il
-    bascule sans cesse quand la pièce flotte autour du seuil — et chaque bascule
-    fait passer la consigne du moteur de 20.0 à la consigne de repli, donc
-    commande le compresseur en marche/arrêt. L'hystérésis supprime ce battement
-    par construction, et fait en plus **atteindre réellement la consigne** au lieu
-    de s'arrêter 0.7 °C en dessous.
+    Pourquoi symétrique : avec un arrêt *à* la consigne, la demande tombe dès
+    que la pièce l'atteint, le moteur repasse en consigne de repli, la production
+    s'arrête — et l'unité, qui a son **propre différentiel de thermostat**
+    (~0.5-1 °C), ne redémarre pas pour un demi-degré manquant. Résultat mesuré le
+    03/11 : la pièce oscillait entre 18.9 et 19.4 pour une consigne de 20.0.
+    En gardant la demande jusqu'à `consigne + bande`, le moteur reste armé sur la
+    vraie consigne et l'unité produit tant que son propre seuil est franchi : la
+    pièce converge vers la consigne au lieu de plafonner en dessous.
+
+    Conséquence à assumer : une pièce légèrement **au-dessus** de sa consigne
+    reste « en demande » (donc clapet ouvert, action « chauffe ») jusqu'à
+    `consigne + bande`. C'est le prix pour atteindre la cible en réel ; réduire
+    `deadband` resserre la bande dans les deux sens.
     """
     if current is None or target is None or mode not in (HEAT, COOL):
         return False
     if mode == HEAT:
         if was_demanding:
-            return current < target
+            return current < target + deadband
         return current < target - deadband
     if was_demanding:
-        return current > target
+        return current > target - deadband
     return current > target + deadband
 
 

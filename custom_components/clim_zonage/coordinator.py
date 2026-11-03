@@ -342,8 +342,12 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
                 seuil_demarrage = (
                     target - deadband if mode == HVAC_HEAT else target + deadband
                 )
+                seuil_arret = (
+                    target + deadband if mode == HVAC_HEAT else target - deadband
+                )
             else:
                 seuil_demarrage = None
+                seuil_arret = None
             zdata[zone.uid] = {
                 "name": zone.name,
                 "temp": temp,
@@ -353,7 +357,7 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
                 "seuil_demarrage": None
                 if seuil_demarrage is None
                 else round(seuil_demarrage, 2),
-                "seuil_arret": target,
+                "seuil_arret": None if seuil_arret is None else round(seuil_arret, 2),
                 "fire_room": zone.fire_room,
             }
 
