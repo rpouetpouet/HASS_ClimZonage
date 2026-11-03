@@ -162,6 +162,8 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         self._force_dampers_next = False
         # Récalibration demandée : les ordres seront renvoyés au prochain cycle,
         # que l'état corresponde déjà ou non (propriété lue par le bouton).
+        # État d'hystérésis : une zone en demande le reste jusqu'à sa consigne.
+        self._zone_demanding: dict[str, bool] = {}
         self._off_closed = False  # les clapets ont-ils déjà été fermés pour cet arrêt ?
         self._unsub: list = []
 
@@ -258,6 +260,8 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
                     "temp": self._float_state(zone.temp_sensor),
                     "target": self.zone_target(zone.uid),
                     "demand": False,
+                    "seuil_demarrage": None,
+                    "seuil_arret": None,
                     "fire_room": zone.fire_room,
                     "open": n_open > 0,
                     "clapets_ouverts": n_open,
@@ -319,22 +323,36 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
             temp = self._float_state(zone.temp_sensor)
             target = self.zone_target(zone.uid)
             zmode = self.zone_mode(zone.uid)
-            demand = zone_demands(temp, target, zmode, deadband)
+            # Hystérésis à deux seuils : l'état précédent de la zone compte.
+            demand = zone_demands(
+                temp, target, zmode, deadband, self._zone_demanding.get(zone.uid, False)
+            )
             if zone.fire_room and self._fire_takeover:
                 demand = False  # le feu chauffe la pièce : le gainable la lâche
             if mode == HVAC_FAN_ONLY:
                 demand = zmode != HVAC_OFF
             if mode in (HVAC_HEAT, HVAC_COOL) and zmode not in (mode, HVAC_OFF):
                 demand = False  # mode interdit : la zone n'est pas en phase
+            self._zone_demanding[zone.uid] = demand
             if demand:
                 demanding.add(zone.uid)
             samples.append((temp, target, demand))
+            if target is not None and mode in (HVAC_HEAT, HVAC_COOL):
+                seuil_demarrage = (
+                    target - deadband if mode == HVAC_HEAT else target + deadband
+                )
+            else:
+                seuil_demarrage = None
             zdata[zone.uid] = {
                 "name": zone.name,
                 "temp": temp,
                 "target": target,
                 "mode": zmode,
                 "demand": demand,
+                "seuil_demarrage": None
+                if seuil_demarrage is None
+                else round(seuil_demarrage, 2),
+                "seuil_arret": target,
                 "fire_room": zone.fire_room,
             }
 
@@ -614,6 +632,16 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
     def recalibration_demandee(self) -> bool:
         """Vrai tant que la réaffirmation des ordres n'a pas eu lieu."""
         return self._force_dampers_next
+
+    def seed_zone_demand(self, uid: str, demanding: bool) -> None:
+        """Réamorce l'hystérésis d'une zone au démarrage de HA.
+
+        Sans ça, une pièce qui demandait au moment du redémarrage repart en
+        « pas en demande » et attend de repasser sous le seuil de démarrage —
+        elle resterait froide jusqu'à 0.7 °C de moins. `RestoreEntity` fournit
+        la dernière valeur connue de l'attribut `demande`.
+        """
+        self._zone_demanding[uid] = bool(demanding)
 
     async def async_recalibrate_dampers(self) -> None:
         """Recalibration : réaffirmer la position voulue sur tous les clapets.

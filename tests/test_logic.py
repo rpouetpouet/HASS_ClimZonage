@@ -108,6 +108,44 @@ def test_prise_en_charge_chemin_e_piece_froide():
     assert fire_takes_over(False, 23.0, True, 19.0, 18.0) is False
 
 
+def test_demande_avec_hysteresis():
+    # En chaud, consigne 20.0, bande 0.7 : démarrage sous 19.3, arrêt à 20.0
+    assert zone_demands(19.2, 20.0, "heat", 0.7, False) is True
+    assert zone_demands(19.4, 20.0, "heat", 0.7, False) is False  # pas encore entré
+    # une fois entrée, elle continue jusqu'à la consigne
+    assert zone_demands(19.4, 20.0, "heat", 0.7, True) is True
+    assert zone_demands(19.9, 20.0, "heat", 0.7, True) is True
+    assert zone_demands(20.0, 20.0, "heat", 0.7, True) is False   # arrêt à la consigne
+    # et ne redémarre qu'en repassant sous 19.3 (vraie hystérésis de 0.7)
+    assert zone_demands(19.5, 20.0, "heat", 0.7, False) is False
+    assert zone_demands(19.2, 20.0, "heat", 0.7, False) is True
+
+    # En froid, miroir : démarrage au-dessus de 20.7, arrêt à 20.0
+    assert zone_demands(20.8, 20.0, "cool", 0.7, False) is True
+    assert zone_demands(20.5, 20.0, "cool", 0.7, False) is False
+    assert zone_demands(20.5, 20.0, "cool", 0.7, True) is True
+    assert zone_demands(20.0, 20.0, "cool", 0.7, True) is False
+
+    # Pas de demande hors chaud/froid, ou sans mesure
+    assert zone_demands(19.0, 20.0, "off", 0.7, True) is False
+    assert zone_demands(None, 20.0, "heat", 0.7, True) is False
+    assert zone_demands(19.0, None, "heat", 0.7, True) is False
+
+
+def test_pas_de_battement_autour_du_seuil():
+    """Sans hystérésis, 19.2/19.3/19.2/19.3 faisait battre la demande à chaque tour."""
+    consigne, bande = 20.0, 0.7
+    etat = False
+    bascules = 0
+    for temp in [19.2, 19.3, 19.2, 19.3, 19.2, 19.3]:
+        nouveau = zone_demands(temp, consigne, "heat", bande, etat)
+        if nouveau != etat:
+            bascules += 1
+        etat = nouveau
+    assert etat is True
+    assert bascules == 1  # une seule bascule : on entre, on n'en sort plus
+
+
 def test_minimum_de_bouches_et_decharge():
     zones = {"batcave", "sdj", "alice", "noemie", "nous", "sam"}
     # une seule zone en demande, un seul clapet → on ajoute la décharge

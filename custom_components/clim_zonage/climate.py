@@ -84,6 +84,12 @@ class ZoneClimate(CoordinatorEntity[ZonageCoordinator], ClimateEntity, RestoreEn
                     self.coordinator.zone_targets[self.zone.uid] = float(temp)
                 except (TypeError, ValueError):
                     pass
+            # Hystérésis : on reprend l'état de demande là où on l'avait laissé,
+            # sinon une pièce en demande au moment du redémarrage attendrait de
+            # repasser sous le seuil de démarrage (0.7 °C plus bas).
+            demande = last.attributes.get("demande")
+            if isinstance(demande, bool):
+                self.coordinator.seed_zone_demand(self.zone.uid, demande)
         self.coordinator.zone_modes.setdefault(self.zone.uid, HVAC_OFF)
         self.coordinator.zone_targets.setdefault(self.zone.uid, 19.5)
 
@@ -125,6 +131,8 @@ class ZoneClimate(CoordinatorEntity[ZonageCoordinator], ClimateEntity, RestoreEn
         zdata = self._zdata
         return {
             "demande": zdata.get("demand"),
+            "seuil_demarrage": zdata.get("seuil_demarrage"),
+            "seuil_arret": zdata.get("seuil_arret"),
             "clapet_ouvert": zdata.get("open"),
             "cheminee_assure_le_chauffage": self.coordinator.data.fire_takeover
             if self.coordinator.data

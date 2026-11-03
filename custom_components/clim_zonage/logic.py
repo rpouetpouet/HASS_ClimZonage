@@ -30,16 +30,31 @@ def zone_demands(
     target: float | None,
     mode: str | None,
     deadband: float,
+    was_demanding: bool = False,
 ) -> bool:
-    """Une zone demande-t-elle ? Bande morte symétrique autour de la consigne.
+    """Une zone demande-t-elle ? **Hystérésis à deux seuils**, pas un simple seuil.
 
-    En chaud : demande si temp < consigne − bande (une zone ne redemande pas
-    dans la bande : c'est ce qui évite le battement du clapet).
+    En chaud : une zone *entre* en demande sous `consigne − bande` (19.3 pour une
+    consigne de 20.0 avec 0.7 de bande) et n'en *sort* qu'à la consigne (20.0).
+    En froid, c'est le miroir : démarrage au-dessus de `consigne + bande`, arrêt à
+    la consigne.
+
+    Pourquoi deux seuils : un comparateur à seuil unique démarre **et** arrête au
+    même point. Réévalué à chaque cycle (30 s) et à chaque changement de sonde, il
+    bascule sans cesse quand la pièce flotte autour du seuil — et chaque bascule
+    fait passer la consigne du moteur de 20.0 à la consigne de repli, donc
+    commande le compresseur en marche/arrêt. L'hystérésis supprime ce battement
+    par construction, et fait en plus **atteindre réellement la consigne** au lieu
+    de s'arrêter 0.7 °C en dessous.
     """
     if current is None or target is None or mode not in (HEAT, COOL):
         return False
     if mode == HEAT:
+        if was_demanding:
+            return current < target
         return current < target - deadband
+    if was_demanding:
+        return current > target
     return current > target + deadband
 
 

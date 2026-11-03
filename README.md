@@ -100,7 +100,7 @@ La stratégie se change dans les options, sans redéploiement.
 | Clé | Défaut | Sens |
 |---|---|---|
 | `strategy` | `generator` | voir ci-dessus |
-| `deadband` | 0.7 °C | bande morte autour de la consigne de zone |
+| `deadband` | 0.7 °C | largeur de l'**hystérésis** : la zone démarre à `consigne − bande` et s'arrête à la consigne |
 | `min_cycle` | 300 s | durée de cycle mini d'un clapet (course réelle 67 s) |
 | `min_vents` | 2 | bouches ouvertes minimum (pression statique) |
 | `margin` | 2.0 °C | marge de la consigne génératrice |
