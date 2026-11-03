@@ -131,6 +131,8 @@ class ZoneClimate(CoordinatorEntity[ZonageCoordinator], ClimateEntity, RestoreEn
         zdata = self._zdata
         return {
             "demande": zdata.get("demand"),
+            "sonde_brute": zdata.get("temp_brute"),
+            "offset": zdata.get("offset"),
             "seuil_demarrage": zdata.get("seuil_demarrage"),
             "seuil_arret": zdata.get("seuil_arret"),
             "clapet_ouvert": zdata.get("open"),

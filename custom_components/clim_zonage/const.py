@@ -16,6 +16,7 @@ CONF_ZONE_SENSOR = "temp_sensor"
 CONF_ZONE_DAMPERS = "dampers"          # liste de cover.*
 CONF_ZONE_FIRE_ROOM = "fire_room"      # la pièce où se trouve la cheminée (référence)
 CONF_ZONE_DUMP = "dump_zone"           # zone de décharge / bypass pression statique
+CONF_ZONE_OFFSET = "offset"            # °C — correction de calibration de la sonde (ajoutée à la lecture)
 
 # ─── Options globales ───────────────────────────────────────────────────────
 CONF_STRATEGY = "strategy"             # "generator" | "remote"

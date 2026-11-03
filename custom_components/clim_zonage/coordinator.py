@@ -56,6 +56,7 @@ from .const import (
     CONF_STRATEGY,
     CONF_ZONE_DAMPERS,
     CONF_ZONE_DUMP,
+    CONF_ZONE_OFFSET,
     CONF_ZONE_FIRE_ROOM,
     CONF_ZONE_NAME,
     CONF_ZONE_SENSOR,
@@ -75,6 +76,7 @@ from .const import (
 )
 from .logic import (
     apply_min_vents,
+    apply_offset,
     choose_fan,
     clamp,
     dump_is_available,
@@ -105,6 +107,7 @@ class Zone:
     dampers: list[str]
     fire_room: bool = False
     dump: bool = False
+    offset: float = 0.0   # °C — correction de calibration de la sonde
 
 
 @dataclass
@@ -134,6 +137,7 @@ def build_zones(raw_zones: list[dict]) -> list[Zone]:
                 dampers=list(raw.get(CONF_ZONE_DAMPERS) or []),
                 fire_room=bool(raw.get(CONF_ZONE_FIRE_ROOM, False)),
                 dump=bool(raw.get(CONF_ZONE_DUMP, False)),
+                offset=float(raw.get(CONF_ZONE_OFFSET) or 0.0),
             )
         )
     return zones
@@ -218,6 +222,16 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
 
     def zone_mode(self, uid: str) -> str:
         return self.zone_modes.get(uid, HVAC_OFF)
+
+    def _zone_temp(self, zone: "Zone") -> float | None:
+        """Température d'une zone, **corrigée** de son offset de calibration.
+
+        La correction vit dans l'intégration, pas dans une entité dérivée : la
+        sonde d'origine reste intacte pour le dashboard et l'historique, et le
+        zonage travaille sur la valeur corrigée. Les attributs du thermostat
+        exposent la mesure brute, l'offset et la valeur retenue.
+        """
+        return apply_offset(self._float_state(zone.temp_sensor), zone.offset)
 
     def _float_state(self, entity_id: str | None) -> float | None:
         if not entity_id:
@@ -380,7 +394,9 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
                     # modes des zones. L'arrêt se lit sur `systeme_actif` et sur
                     # hvac_action, pas en maquillant chaque zone.
                     "mode": self.zone_mode(zone.uid),
-                    "temp": self._float_state(zone.temp_sensor),
+                    "temp": self._zone_temp(zone),
+                    "temp_brute": self._float_state(zone.temp_sensor),
+                    "offset": zone.offset,
                     "target": self.zone_target(zone.uid),
                     "demand": False,
                     "seuil_demarrage": None,
@@ -416,7 +432,7 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
 
         # 2. Cheminée : détection (panache) puis prise en charge (plancher de pièce)
         fire_zone = next((z for z in self.zones if z.fire_room), None)
-        room_temp = self._float_state(fire_zone.temp_sensor) if fire_zone else None
+        room_temp = self._zone_temp(fire_zone) if fire_zone else None
         chimney_temp = self._float_state(self.fireplace_sensor)
         self._fire = fire_detected(
             chimney_temp,
@@ -443,7 +459,7 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         demanding: set[str] = set()
 
         for zone in self.zones:
-            temp = self._float_state(zone.temp_sensor)
+            temp = self._zone_temp(zone)
             target = self.zone_target(zone.uid)
             zmode = self.zone_mode(zone.uid)
             # Hystérésis à deux seuils : l'état précédent de la zone compte.
@@ -476,6 +492,8 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
             zdata[zone.uid] = {
                 "name": zone.name,
                 "temp": temp,
+                "temp_brute": self._float_state(zone.temp_sensor),
+                "offset": zone.offset,
                 "target": target,
                 "mode": zmode,
                 "demand": demand,
@@ -492,7 +510,7 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         if dump_zone is not None and mode in (HVAC_HEAT, HVAC_COOL) and not ko_zones:
             dump_available = dump_is_available(
                 mode,
-                self._float_state(dump_zone.temp_sensor),
+                self._zone_temp(dump_zone),
                 self.zone_target(dump_zone.uid),
                 self._fire_takeover,
                 dump_zone.fire_room,
@@ -576,7 +594,7 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
                     TEMP_STEP,
                 )
             else:
-                reference = self._float_state(fire_zone.temp_sensor) if fire_zone else None
+                reference = self._zone_temp(fire_zone) if fire_zone else None
                 if reference is None:
                     reference = self._attr(self.engine, "current_temperature")
                 setpoint = generator_setpoint(

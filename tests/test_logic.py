@@ -18,6 +18,7 @@ _LOGIC = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(_LOGIC)
 
 apply_min_vents = _LOGIC.apply_min_vents
+apply_offset = _LOGIC.apply_offset
 dump_is_available = _LOGIC.dump_is_available
 choose_fan = _LOGIC.choose_fan
 fire_detected = _LOGIC.fire_detected
@@ -127,6 +128,17 @@ def test_consigne_de_maison_et_marge_en_deporte():
     assert remote_setpoint([(19.0, 30.5, True)], "heat", 1.0, 16, 31, 0.5) == 31
     # aucune pièce en demande → pas de consigne
     assert remote_setpoint([(20.0, 19.5, False)], "heat", 0.5, 16, 31, 0.5) is None
+
+
+def test_correction_de_calibration_dune_sonde():
+    # une sonde qui lit 0.8 °C de trop reçoit un offset de -0.8
+    assert apply_offset(21.3, -0.8) == 20.5
+    assert apply_offset(19.9, 0.0) == 19.9
+    assert apply_offset(19.9, 0.4) == 20.3
+    # pas de mesure → pas de correction
+    assert apply_offset(None, -0.8) is None
+    # arrondi propre (les sondes sont à 0.1 °C)
+    assert apply_offset(20.15, 0.1) == 20.25
 
 
 def test_chien_de_garde_trois_etats():

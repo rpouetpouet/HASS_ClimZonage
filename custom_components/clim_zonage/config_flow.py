@@ -35,6 +35,7 @@ from .const import (
     CONF_ZONE_DAMPERS,
     CONF_ZONE_DUMP,
     CONF_ZONE_FIRE_ROOM,
+    CONF_ZONE_OFFSET,
     CONF_ZONE_NAME,
     CONF_ZONE_SENSOR,
     CONF_ZONE_UID,
@@ -107,6 +108,13 @@ def _zone_schema(defaults: dict | None = None) -> vol.Schema:
             vol.Optional(
                 CONF_ZONE_DUMP, default=defaults.get(CONF_ZONE_DUMP, False)
             ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_ZONE_OFFSET, default=defaults.get(CONF_ZONE_OFFSET, 0.0)
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=-5, max=5, step=0.1, mode=selector.NumberSelectorMode.BOX
+                )
+            ),
         }
     )
 
@@ -362,6 +370,7 @@ class ClimZonageOptionsFlow(OptionsFlow):
                         CONF_ZONE_DAMPERS,
                         CONF_ZONE_FIRE_ROOM,
                         CONF_ZONE_DUMP,
+                        CONF_ZONE_OFFSET,
                     ):
                         zone[key] = user_input[key]
                     break

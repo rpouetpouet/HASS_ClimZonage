@@ -13,6 +13,18 @@ HEAT = "heat"
 COOL = "cool"
 
 
+def apply_offset(value: float | None, offset: float) -> float | None:
+    """Applique la correction de calibration d'une sonde.
+
+    `offset` est **ajouté** à la mesure : une sonde qui lit 0.8 °C de trop reçoit
+    −0.8. La mesure brute n'est jamais modifiée en amont — l'entité d'origine
+    garde sa valeur, seule la valeur utilisée par le zonage est corrigée.
+    """
+    if value is None or not offset:
+        return value
+    return round(value + offset, 2)
+
+
 def clamp(value: float, low: float, high: float) -> float:
     """Borne une valeur."""
     return max(low, min(high, value))
