@@ -126,11 +126,12 @@ ce qui évite le battement des clapets.
 une panne.
 
 Si la pièce est en **prise en charge cheminée**, elle est retirée de la demande.
-Si le mode de la pièce ne correspond pas au mode global, elle est réalignée automatiquement sur le
-mode de la maison : c'est le garde-fou « mode interdit », qui évite qu'une seule pièce bascule tout
-le gainable dans la mauvaise saison. **Une pièce ne peut d'ailleurs pas être réglée dans le mode
-opposé** : quand la maison est en chaud, le thermostat d'une pièce ne propose que `off` et `heat`
-(idem en froid). Le menu se met à jour tout seul au changement de saison.
+Chaque thermostat de pièce n'expose que **deux modes : `off` (la pièce ne reçoit rien) et le mode de
+la maison** — `heat` en hiver, `cool` en été, `fan_only` en ventilation seule. Le mode de la maison
+(`select.clim_zonage_mode_global`) est donc l'autorité de saison : inutile de régler chaque pièce, un
+changement de saison réaligne automatiquement toutes les pièces. Une pièce restée dans un autre mode
+est réalignée d'office au cycle suivant, pour qu'aucune carte n'affiche un mode qui ne serait ni
+proposé ni honoré.
 
 ### 4 bis — Recalibrer les clapets (`button.clim_zonage_recalibrer_les_clapets`)
 
@@ -233,7 +234,10 @@ possible à tout moment avec les YAML sauvegardés (voir §10).
 Ce qui se passe exactement en passant sur OFF (mesuré le 03/11/2026, effet en ~3 s) :
 
 - le gainable reçoit `hvac_mode: off` ;
-- **les 7 clapets se ferment d'autorité**, sans attendre la durée de cycle minimum (course de 67 s) ;
+- **les 7 clapets sont fermés une seule fois**, à l'entrée en arrêt, sans attendre la durée de cycle
+  minimum (course de 67 s). **Ensuite l'intégration ne les touche plus** : une ouverture manuelle d'un
+  clapet — depuis le dashboard ou depuis la télécommande murale — tient, et l'état réel est reporté
+  dans les entités (vérifié le 03/11/2026 : clapet ouvert à la main, toujours ouvert 2 minutes après) ;
 - `sensor.clim_zonage_strategie_moteur` passe à `off`, la température déportée n'est plus envoyée
   (l'unité retomberait sur sa sonde interne après 15 min, sans conséquence puisqu'elle est éteinte) ;
 - les thermostats de pièce **restent lisibles** : consigne et température affichées, action `off`.
@@ -273,8 +277,10 @@ Trois vues, accessibles depuis la barre latérale (`/chauffage-clim`) :
 | `strategy` | `remote` | seulement pour revenir en `generator` (dépannage firmware) |
 | `deadband` | 0.7 °C | augmenter si les clapets battent ; diminuer pour une régulation plus serrée |
 | `min_cycle` | 300 s | ne pas descendre sous la course d'un clapet (67 s) |
-| `min_vents` | 2 | augmenter si le réseau siffle avec peu de bouches ouvertes |
+| `min_vents` | 2 | bouches ouvertes minimum (pression statique) : en dessous, la zone de décharge est ouverte pour ne pas étrangler le réseau |
 | `margin` | 2.0 °C | **sans effet en `remote`** ; sert en `generator` |
+| `cycle_seconds` | 30 s | période de la boucle de décision (10 à 900 s). Une action manuelle reste immédiate |
+| `damper_course` | 80 s | durée de course d'un clapet, utilisée par la recalibration (course réelle 67 s) |
 | `fallback_heat` / `fallback_cool` | 17 / 28 °C | consigne de repli quand aucune pièce ne demande |
 | `fire_delta_on` / `fire_delta_off` | 5 / 2 °C | détection du feu (marge sur le bruit mesuré) |
 | `fire_temp_min` / `fire_temp_off` | 19 / 18 °C | plancher de pièce pour laisser le feu chauffer seul |
