@@ -282,9 +282,12 @@ dans l'interface de l'entité.
 
 ## 12. Ce qui reste ouvert
 
-- Les **6 `switch.clapet_*`** de `templates.yaml` ne servent plus à rien (l'intégration commande les
-  `cover` directement) : à retirer quand tu veux, sans redémarrage.
+- Les **helpers de l'ancien chantier ont été supprimés le 03/11/2026** : les 6 `switch.clapet_*` de
+  `templates.yaml` (sauvegarde `/config/_backup_templates_clapets_20261103-161118/`) et le helper
+  `input_select.clim_mode_zonage`. L'intégration commande directement les `cover` des clapets.
 - Les **function settings** du fork (hauteur de plafond / pression statique, ventilation pendant le
   thermo-off) n'ont pas été testés sur la Master : certaines unités renvoient des zéros.
 - Aucune automatisation de **présence** n'est encore branchée sur le master switch.
 - La **vitesse `middle`** n'est pas utilisée par le mapping actuel ; à valider à l'oreille si besoin.
+- Le pont de la **Clim SdB Nous** (`clim-sdbnous`) est resté sur le composant natif : cette unité
+  n'appartient pas au zonage et n'a pas besoin de température déportée.
