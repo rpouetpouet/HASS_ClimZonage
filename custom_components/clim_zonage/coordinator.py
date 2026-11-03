@@ -217,7 +217,23 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         if not self.active:
             await self._async_engine_off()
             await self._async_apply_dampers(set(), force=True)
-            self._state = ZonageState(active=False, mode=HVAC_OFF, zones={})
+            # On garde les zones lisibles (consigne, température, mode `off`) :
+            # l'utilisateur doit voir ce qui redémarrera, et `zone_modes` /
+            # `zone_targets` restent intacts pour la réactivation.
+            zdata_off: dict[str, dict[str, Any]] = {}
+            for zone in self.zones:
+                zdata_off[zone.uid] = {
+                    "name": zone.name,
+                    "temp": self._float_state(zone.temp_sensor),
+                    "target": self.zone_target(zone.uid),
+                    "mode": HVAC_OFF,
+                    "demand": False,
+                    "fire_room": zone.fire_room,
+                    "open": False,
+                }
+            self._state = ZonageState(
+                active=False, mode=HVAC_OFF, zones=zdata_off, strategy="off"
+            )
             return self._state
 
         mode = self.mode if self.mode in (HVAC_HEAT, HVAC_COOL, HVAC_FAN_ONLY) else HVAC_HEAT
