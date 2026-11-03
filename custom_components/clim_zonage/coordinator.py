@@ -37,6 +37,8 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import (
     CONF_CYCLE_SECONDS,
+    CONF_SENSOR_GRACE_S,
+    CONF_SENSOR_TIMEOUT_MIN,
     CONF_DAMPER_COURSE,
     CONF_DEADBAND,
     CONF_ENGINE,
@@ -65,6 +67,8 @@ from .const import (
     HVAC_OFF,
     MAX_TEMP,
     MIN_TEMP,
+    DEFAULT_SENSOR_GRACE_S,
+    DEFAULT_SENSOR_TIMEOUT_MIN,
     STRATEGY_REMOTE,
     TEMP_STEP,
     TICK_SECONDS,
@@ -78,6 +82,11 @@ from .logic import (
     fire_takes_over,
     generator_setpoint,
     house_setpoint,
+    MODE_DEGRADE,
+    MODE_GELE,
+    MODE_NORMAL,
+    watchdog_mode,
+    remote_setpoint,
     snap,
     virtual_temperature,
     zone_demands,
@@ -166,6 +175,13 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         # État d'hystérésis : une zone en demande le reste jusqu'à sa consigne.
         self._zone_demanding: dict[str, bool] = {}
         self._off_closed = False  # les clapets ont-ils déjà été fermés pour cet arrêt ?
+        # Chien de garde des sondes essentielles (zones + cheminée).
+        self._sensor_last_ok: dict[str, float] = {}
+        self._ko_since: float | None = None
+        self.sensor_ko: dict[str, dict] = {}
+        self.sensor_total: int = 0
+        self.watchdog: str = MODE_NORMAL
+        self._ko_notified = False
         self._unsub: list = []
 
     # ─── cycle de vie ───────────────────────────────────────────────────────
@@ -218,11 +234,117 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         state = self.hass.states.get(entity_id)
         return state.attributes.get(key) if state else None
 
+    # ─── chien de garde des sondes ─────────────────────────────────────────
+    async def _async_watchdog(self, opts: dict) -> tuple[str, set[str]]:
+        """Surveille les sondes essentielles ; rend l'état et les zones muettes.
+
+        Essentielles = la sonde de chaque zone zonnée **et** la sonde de panache
+        de la cheminée (elle décide de la prise en charge du feu). Une sonde est
+        déclarée KO quand elle n'a plus donné de valeur numérique depuis
+        `sensor_timeout_min` (10 min par défaut) : un `unavailable` d'une seconde
+        ne compte pas, c'est le rôle du délai.
+
+        L'état du chien de garde pilote la boucle :
+          * `gele`    → aucune écriture du tout pendant `sensor_grace_s` ;
+          * `degrade` → on continue avec les zones valides, sans toucher aux
+                        clapets des zones muettes, et une notification est créée.
+        """
+        now_ts = time.time()
+        essential: dict[str, str] = {
+            z.temp_sensor: z.name for z in self.zones if z.temp_sensor
+        }
+        if self.fireplace_sensor:
+            essential[self.fireplace_sensor] = "Température cheminée (panache)"
+        self.sensor_total = len(essential)
+
+        ko: dict[str, dict] = {}
+        ko_zones: set[str] = set()
+        timeout = float(
+            opts.get(CONF_SENSOR_TIMEOUT_MIN, DEFAULT_SENSOR_TIMEOUT_MIN)
+        ) * 60
+        for eid, name in essential.items():
+            if self._float_state(eid) is not None:
+                self._sensor_last_ok[eid] = now_ts
+            last = self._sensor_last_ok.get(eid)
+            age = None if last is None else now_ts - last
+            if age is not None and age <= timeout:
+                continue
+            ko[eid] = {
+                "nom": name,
+                "minutes": None if age is None else round(age / 60, 1),
+            }
+            for zone in self.zones:
+                if zone.temp_sensor == eid:
+                    ko_zones.add(zone.uid)
+        self.sensor_ko = ko
+
+        if ko and self._ko_since is None:
+            self._ko_since = now_ts
+            _LOGGER.warning(
+                "Sonde(s) essentielle(s) indisponible(s) : %s", ", ".join(sorted(ko))
+            )
+        elif not ko and self._ko_since is not None:
+            self._ko_since = None
+            _LOGGER.info("Toutes les sondes essentielles répondent de nouveau")
+
+        self.watchdog = watchdog_mode(
+            len(ko),
+            self._ko_since,
+            now_ts,
+            float(opts.get(CONF_SENSOR_GRACE_S, DEFAULT_SENSOR_GRACE_S)),
+        )
+
+        if ko and not self._ko_notified:
+            self._ko_notified = True
+            self.hass.async_create_task(self._async_notify_sensors(ko))
+        elif not ko and self._ko_notified:
+            self._ko_notified = False
+            self.hass.async_create_task(self._async_dismiss_notification())
+
+        return self.watchdog, ko_zones
+
+    async def _async_notify_sensors(self, ko: dict[str, dict]) -> None:
+        details = "\n".join(
+            f"- **{v['nom']}** : "
+            + ("aucune mesure depuis le démarrage" if v["minutes"] is None
+               else f"{v['minutes']} min sans mesure")
+            for v in ko.values()
+        )
+        message = (
+            "Le zonage ne peut plus mesurer toutes ses pièces :\n\n"
+            f"{details}\n\n"
+            "Pendant la grâce, aucune commande n'est envoyée (ni clapet, ni consigne). "
+            "Au-delà, les zones valides continuent et les zones muettes sont laissées "
+            "en l'état."
+        )
+        await self.hass.services.async_call(
+            "persistent_notification",
+            "create",
+            {
+                "notification_id": "clim_zonage_sondes",
+                "title": "Zonage clim : sonde(s) indisponible(s)",
+                "message": message,
+            },
+            blocking=False,
+        )
+
+    async def _async_dismiss_notification(self) -> None:
+        await self.hass.services.async_call(
+            "persistent_notification",
+            "dismiss",
+            {"notification_id": "clim_zonage_sondes"},
+            blocking=False,
+        )
+
     # ─── la boucle ──────────────────────────────────────────────────────────
     async def _async_update_data(self) -> ZonageState:
         opts = self.options
         engine_state = self.hass.states.get(self.engine)
         engine_mode = engine_state.state if engine_state else None
+
+        # 0. Chien de garde : une sonde muette gèle ou dégrade la décision.
+        watchdog, ko_zones = await self._async_watchdog(opts)
+        freeze = watchdog == MODE_GELE
 
         # 1. MASTER OFF → tout s'arrête, et c'est le seul `off` du système.
         if not self.active:
@@ -334,6 +456,9 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
                 demand = zmode != HVAC_OFF
             if mode in (HVAC_HEAT, HVAC_COOL) and zmode not in (mode, HVAC_OFF):
                 demand = False  # mode interdit : la zone n'est pas en phase
+            if zone.uid in ko_zones:
+                # Sonde muette : on ne peut rien affirmer sur cette pièce.
+                demand = False
             self._zone_demanding[zone.uid] = demand
             if demand:
                 demanding.add(zone.uid)
@@ -364,7 +489,7 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         # 4. Clapets : demande + minimum de bouches (pression statique)
         dump_zone = next((z for z in self.zones if z.dump), None)
         dump_available = True
-        if dump_zone is not None and mode in (HVAC_HEAT, HVAC_COOL):
+        if dump_zone is not None and mode in (HVAC_HEAT, HVAC_COOL) and not ko_zones:
             dump_available = dump_is_available(
                 mode,
                 self._float_state(dump_zone.temp_sensor),
@@ -397,7 +522,12 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         # sur la croyance de l'intégration.
         force_all = self._force_dampers_next
         self._force_dampers_next = False
-        await self._async_apply_dampers(wanted, force_all=force_all)
+        if freeze:
+            _LOGGER.debug("Sonde muette : aucune commande de clapet ce cycle")
+        else:
+            await self._async_apply_dampers(
+                wanted, force_all=force_all, skip=ko_zones
+            )
 
         # 5. Bouches réellement ouvertes (mesuré, pas commandé) — on compte les
         #    CLAPETS physiques : la salle à manger en a deux, donc deux bouches.
@@ -437,7 +567,14 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
                     "Température déportée indisponible : repli sur la consigne génératrice"
                 )
             if effective == STRATEGY_REMOTE:
-                setpoint = house_setpoint(samples, mode, MIN_TEMP, MAX_TEMP, TEMP_STEP)
+                setpoint = remote_setpoint(
+                    samples,
+                    mode,
+                    float(opts.get(CONF_MARGIN)),
+                    MIN_TEMP,
+                    MAX_TEMP,
+                    TEMP_STEP,
+                )
             else:
                 reference = self._float_state(fire_zone.temp_sensor) if fire_zone else None
                 if reference is None:
@@ -478,7 +615,11 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
 
     # ─── écritures ──────────────────────────────────────────────────────────
     async def _async_apply_dampers(
-        self, wanted: set[str], force: bool = False, force_all: bool = False
+        self,
+        wanted: set[str],
+        force: bool = False,
+        force_all: bool = False,
+        skip: set[str] | None = None,
     ) -> None:
         """Ouvre/ferme les clapets voulus, en respectant la durée de cycle.
 
@@ -489,7 +630,14 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         """
         now = time.monotonic()
         min_cycle = float(self.options.get(CONF_MIN_CYCLE))
+        skip = skip or set()
         for zone in self.zones:
+            if zone.uid in skip:
+                # Sonde muette : on laisse le clapet dans son état, décider
+                # sans mesure est précisément ce qui a produit le faux pas du
+                # 03/11 (zone lue à None → « aucune demande » → clapet fermé
+                # puis verrouillé 20 min par min_cycle).
+                continue
             states = [self.hass.states.get(d) for d in zone.dampers]
             known = [s for s in states if s is not None]
             if not known:

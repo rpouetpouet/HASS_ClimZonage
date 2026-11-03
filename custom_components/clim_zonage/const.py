@@ -32,6 +32,8 @@ CONF_FIRE_TEMP_OFF = "fire_temp_off"
 CONF_FAN_THRESHOLDS = "fan_thresholds"
 CONF_CYCLE_SECONDS = "cycle_seconds"
 CONF_DAMPER_COURSE = "damper_course"
+CONF_SENSOR_TIMEOUT_MIN = "sensor_timeout_min"
+CONF_SENSOR_GRACE_S = "sensor_grace_s"
 
 STRATEGY_GENERATOR = "generator"
 STRATEGY_REMOTE = "remote"
@@ -52,6 +54,8 @@ DEFAULT_FIRE_TEMP_OFF = 18.0   # °C — hystérésis basse (bûche qui couve / 
 DEFAULT_FAN_THRESHOLDS = {"low": 2, "medium": 4, "high": 7}
 DEFAULT_CYCLE_SECONDS = 30     # période de la boucle de décision (30 s)
 DEFAULT_DAMPER_COURSE = 80     # s — course d'un clapet (maxtime du Shelly : 80 s, course réelle 67 s)
+DEFAULT_SENSOR_TIMEOUT_MIN = 10  # min — au-delà, une sonde est déclarée indisponible (chien de garde)
+DEFAULT_SENSOR_GRACE_S = 120     # s — gel total des décisions après la perte d'une sonde
 
 # ─── Plages de consigne acceptées par les unités CN105 ──────────────────────
 MIN_TEMP = 16.0

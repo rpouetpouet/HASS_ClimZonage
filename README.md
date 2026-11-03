@@ -103,7 +103,7 @@ La stratégie se change dans les options, sans redéploiement.
 | `deadband` | 0.7 °C | largeur de l'**hystérésis** : la zone démarre à `consigne − bande` et s'arrête à la consigne |
 | `min_cycle` | 300 s | durée de cycle mini d'un clapet (course réelle 67 s) |
 | `min_vents` | 2 | bouches ouvertes minimum (pression statique) |
-| `margin` | 2.0 °C | marge de la consigne génératrice |
+| `margin` | 0.5 °C | marge ajoutée à la consigne envoyée (chaud) / retirée (froid) — compense le différentiel de thermostat de l'unité |
 | `fallback_heat` / `fallback_cool` | 17 / 28 °C | repli quand aucune zone ne demande |
 | `fire_delta_on` / `fire_delta_off` | 5 / 2 °C | hystérésis de détection du feu |
 | `fire_temp_min` / `fire_temp_off` | 19 / 18 °C | plancher de pièce pour déléguer au feu |

@@ -20,6 +20,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
             DemandeBinarySensor(coordinator, entry),
             FeuBinarySensor(coordinator, entry),
             ChemineeTakeoverBinarySensor(coordinator, entry),
+            SondesOperationnellesBinarySensor(coordinator, entry),
         ]
     )
 
@@ -95,4 +96,34 @@ class ChemineeTakeoverBinarySensor(_Base):
             "seuil_prise_en_charge": self.coordinator.options.get("fire_temp_min"),
             "seuil_desarmement": self.coordinator.options.get("fire_temp_off"),
             "force_manuelle": self.coordinator.fire_force,
+        }
+
+
+class SondesOperationnellesBinarySensor(_Base):
+    """Toutes les sondes essentielles répondent-elles ?
+
+    Essentielles = la sonde de chaque zone + la sonde de panache de la cheminée.
+    Une sonde est déclarée indisponible quand elle n'a plus donné de mesure
+    depuis `sensor_timeout_min`. Cet état gèle (brièvement) ou dégrade les
+    décisions, et il est utilisable dans une automatisation de notification.
+    """
+
+    _attr_name = "Sondes opérationnelles"
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+
+    def __init__(self, coordinator, entry):
+        super().__init__(coordinator, entry, "sondes_operationnelles")
+
+    @property
+    def is_on(self) -> bool:
+        return bool(self.coordinator.sensor_ko)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        coord = self.coordinator
+        return {
+            "mode": coord.watchdog,
+            "sondes_suivies": coord.sensor_total,
+            "sondes_indisponibles": sorted(coord.sensor_ko),
+            "detail": coord.sensor_ko,
         }

@@ -176,6 +176,28 @@ d'application est le `cycle_seconds` (30 s par défaut), exposé par l'attribut 
 
 Utilisable depuis une automatisation (`button.press`) — par exemple une fois par semaine la nuit.
 
+### Étape 3 bis — le chien de garde des sondes
+
+Chaque tour de boucle vérifie que **toutes les sondes essentielles** répondent : la sonde de chaque
+zone **et** la sonde de panache de la cheminée. Une sonde qui n'a plus donné de valeur numérique
+depuis `sensor_timeout_min` (10 min par défaut) est déclarée **indisponible** — un `unavailable`
+d'une seconde ne compte donc pas.
+
+Trois états, exposés par `binary_sensor.clim_zonage_sondes_operationnelles` (attribut `mode`) :
+
+| Mode | Déclenchement | Ce que fait l'intégration |
+|---|---|---|
+| `normal` | toutes les sondes répondent | fonctionnement nominal |
+| `gele` | une sonde vient de tomber (pendant `sensor_grace_s`, 120 s) | **aucune écriture** : ni clapet, ni consigne, ni vitesse |
+| `degrade` | la sonde est tombée depuis plus que la grâce | les zones valides continuent, les clapets des zones muettes sont laissés en l'état, une notification persistante est créée |
+
+Le gel de 120 s est ce qui empêche un trou d'une seconde (rechargement de l'intégration, redémarrage,
+entité momentanément `unavailable`) de déclencher un mouvement de clapets puis de se figer 20 minutes
+sur le verrou `min_cycle` — incident réellement vécu le 03/11/2026.
+
+Le détail est lisible dans `sensor.clim_zonage_sondes_indisponibles` (nombre + attributs `detail` :
+nom de la sonde et minutes sans mesure).
+
 ### Étape 4 — les clapets
 
 Les clapets des pièces en demande sont ouverts, les autres fermés. Deux garde-fous :

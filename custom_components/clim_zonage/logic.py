@@ -77,6 +77,60 @@ def choose_fan(open_vents: int, thresholds: dict) -> str:
     return "high"
 
 
+MODE_NORMAL = "normal"
+MODE_GELE = "gele"
+MODE_DEGRADE = "degrade"
+
+
+def watchdog_mode(
+    ko_count: int, ko_since_ts: float | None, now_ts: float, grace_s: float
+) -> str:
+    """Que faire quand une sonde essentielle ne donne plus de mesure ?
+
+    Trois états, dans cet ordre :
+
+    * `normal` — toutes les sondes répondent.
+    * `gele` — une sonde vient de tomber : on **ne touche à rien** (ni clapet, ni
+      consigne, ni vitesse) pendant la période de grâce. C'est ce qui empêche un
+      trou d'une seconde (rechargement, redémarrage, `unavailable` passager) de
+      déclencher un mouvement de clapets puis de se figer 20 minutes sur le
+      verrou `min_cycle`.
+    * `degrade` — la sonde est tombée depuis plus que la grâce : on continue avec
+      les zones valides, on ne touche plus aux clapets de la zone muette, et on
+      alerte. Une sonde morte ne doit pas geler le chauffage de toute la maison.
+    """
+    if ko_count <= 0:
+        return MODE_NORMAL
+    if ko_since_ts is None or (now_ts - ko_since_ts) < grace_s:
+        return MODE_GELE
+    return MODE_DEGRADE
+
+
+def remote_setpoint(
+    samples: Sequence[tuple[float | None, float | None, bool]],
+    mode: str,
+    margin: float,
+    low: float,
+    high: float,
+    step: float,
+) -> float | None:
+    """Consigne envoyée à l'unité en stratégie déportée : consigne de maison + marge.
+
+    La marge n'est pas un caprice : l'unité a son **propre différentiel de
+    thermostat** (mesuré ~0,5 à 1 °C). Avec une consigne égale à la consigne de
+    maison, il ne reste, une fois la pièce proche de sa cible, qu'un écart trop
+    faible pour que le compresseur redémarre — la pièce plafonne alors sous sa
+    consigne. Envoyer `consigne + marge` (chaud) / `consigne − marge` (froid)
+    garantit le franchissement de ce différentiel tout en gardant une régulation
+    finie : c'est la température déportée qui décide, pas la marge.
+    """
+    house = house_setpoint(samples, mode, low, high, step)
+    if house is None:
+        return None
+    offset = margin if mode == HEAT else -margin
+    return snap(clamp(house + offset, low, high), step)
+
+
 def generator_setpoint(
     reference_temp: float | None,
     mode: str,

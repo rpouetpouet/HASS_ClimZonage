@@ -23,6 +23,9 @@ choose_fan = _LOGIC.choose_fan
 fire_detected = _LOGIC.fire_detected
 fire_takes_over = _LOGIC.fire_takes_over
 generator_setpoint = _LOGIC.generator_setpoint
+house_setpoint = _LOGIC.house_setpoint
+remote_setpoint = _LOGIC.remote_setpoint
+watchdog_mode = _LOGIC.watchdog_mode
 snap = _LOGIC.snap
 virtual_temperature = _LOGIC.virtual_temperature
 zone_demands = _LOGIC.zone_demands
@@ -107,6 +110,37 @@ def test_prise_en_charge_chemin_e_piece_froide():
     assert fire_takes_over(True, 17.9, True, 19.0, 18.0) is False
     # pas de feu → pas de prise en charge
     assert fire_takes_over(False, 23.0, True, 19.0, 18.0) is False
+
+
+def test_consigne_de_maison_et_marge_en_deporte():
+    samples = [(19.2, 20.0, True), (21.0, 19.5, False), (20.1, 20.0, True)]
+    # sans marge : la plus haute consigne des pièces en demande
+    assert house_setpoint(samples, "heat", 16, 31, 0.5) == 20.0
+    # avec marge 0.5 : consigne + marge, pour franchir le différentiel de l'unité
+    assert remote_setpoint(samples, "heat", 0.5, 16, 31, 0.5) == 20.5
+    assert remote_setpoint(samples, "heat", 1.0, 16, 31, 0.5) == 21.0
+    # en froid, la marge se retire
+    cool = [(23.0, 22.0, True), (19.0, 20.0, False)]
+    assert house_setpoint(cool, "cool", 16, 31, 0.5) == 22.0
+    assert remote_setpoint(cool, "cool", 0.5, 16, 31, 0.5) == 21.5
+    # bornage et arrondi sur le pas réel de l'unité
+    assert remote_setpoint([(19.0, 30.5, True)], "heat", 1.0, 16, 31, 0.5) == 31
+    # aucune pièce en demande → pas de consigne
+    assert remote_setpoint([(20.0, 19.5, False)], "heat", 0.5, 16, 31, 0.5) is None
+
+
+def test_chien_de_garde_trois_etats():
+    """normal → gele (grâce) → degrade : une sonde morte ne doit pas figer la maison."""
+    now = 1_000_000.0
+    assert watchdog_mode(0, None, now, 120) == "normal"
+    # une sonde vient de tomber : on ne touche à rien
+    assert watchdog_mode(1, now - 5, now, 120) == "gele"
+    assert watchdog_mode(3, now - 119, now, 120) == "gele"
+    # au-delà de la grâce : on continue avec les zones valides et on alerte
+    assert watchdog_mode(1, now - 121, now, 120) == "degrade"
+    assert watchdog_mode(2, now - 3600, now, 120) == "degrade"
+    # jamais de mesure connue (démarrage avec une sonde déjà morte) : gel d'abord
+    assert watchdog_mode(1, None, now, 120) == "gele"
 
 
 def test_demande_avec_hysteresis():

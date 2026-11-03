@@ -24,6 +24,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
             VirtualTempSensor(coordinator, entry),
             DemandingZonesSensor(coordinator, entry),
             StrategySensor(coordinator, entry),
+            SondesIndisponiblesSensor(coordinator, entry),
         ]
     )
 
@@ -169,4 +170,29 @@ class StrategySensor(_Base):
             "repli_actif": demande != data.strategy,
             "temperature_deportee_disponible": data.virtual_temp is not None,
             "consigne_envoyee": data.engine_setpoint,
+        }
+
+
+class SondesIndisponiblesSensor(_Base):
+    """Nombre de sondes essentielles muettes, avec le détail des minutes écoulées."""
+
+    _attr_name = "Sondes indisponibles"
+    _attr_icon = "mdi:thermometer-alert"
+    _attr_native_unit_of_measurement = "sondes"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, coordinator, entry):
+        super().__init__(coordinator, entry, "sondes_indisponibles")
+
+    @property
+    def native_value(self) -> int:
+        return len(self.coordinator.sensor_ko)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        coord = self.coordinator
+        return {
+            "mode": coord.watchdog,
+            "sondes_suivies": coord.sensor_total,
+            "detail": coord.sensor_ko,
         }
