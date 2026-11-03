@@ -181,7 +181,8 @@ Les clapets des pièces en demande sont ouverts, les autres fermés. Deux garde-
   ouverte en plus pour ne pas étrangler le réseau de gaines. Elle est laissée fermée si elle est déjà
   au-dessus de sa consigne, ou si le feu est en prise en charge.
 
-⚠️ **À quoi sert vraiment ce minimum.** Le gainable **n'adapte pas son débit au nombre de bouchesouvertes** : il régule sur la température (reprise contre consigne) et son ventilateur n'a que
+⚠️ **À quoi sert vraiment ce minimum.** Le gainable **n'adapte pas son débit au nombre de bouches
+ouvertes** : il régule sur la température (reprise contre consigne) et son ventilateur n'a que
 quelques vitesses fixes — en `auto` il suit la charge thermique, pas la perte de charge des gaines.
 L'adaptation du débit vient donc de **nous**, par la vitesse de ventilation (1-2 bouches → `low`,
 3-4 → `medium`, 5-7 → `high`). Le minimum de bouches n'est qu'un **filet de sécurité acoustique** :
