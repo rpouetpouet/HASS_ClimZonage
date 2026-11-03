@@ -295,7 +295,53 @@ dans l'interface de l'entité.
 
 ---
 
-## 12. Ce qui reste ouvert
+## 12. Paramètres constructeur de l'unité (function settings)
+
+Le pont CN105 sait lire — et écrire — les réglages usine de l'unité (codes ISU Mitsubishi). Ils sont
+exposés dans Home Assistant comme des `select` de diagnostic, sous l'appareil **Clim Master**.
+**Les modifier écrit réellement dans l'unité** : ne pas y toucher par curiosité.
+
+Valeurs lues le 03/11/2026 sur la Master :
+
+```text
+101  Redémarrage après coupure ............ OFF
+102  Source de température ................ Externe (CN105 / WiFi)
+103  Lien ventilation ..................... Aucun
+105  Éco d'énergie auto ................... OFF
+107  Signal filtre ........................ Aucune indication
+108  Hauteur plafond / pression statique .. Plafond haut
+109  Nombre de bouches .................... 4 directions (sans objet)
+110  Logique mode auto .................... Confort
+111  Géométrie d'aube ..................... non supporté
+117  Logique de dégivrage ................. Standard
+124  Offset chauffe +2 °C ................. ON
+125  Ventilateur en thermo-off (chaud) .... Extra-bas
+127  Ventilateur en thermo-off (froid) .... Vitesse imposée
+128  Affichage erreur télécommande ........ ON
+```
+
+Ce qu'il faut en retenir :
+
+- **102 = Externe (CN105/WiFi)** : c'est le réglage qui rend la température déportée autoritaire. Il
+  est déjà sur la bonne valeur — la stratégie `remote` utilise le mécanisme prévu par l'unité, sans
+  bidouille.
+- **108 = Plafond haut** est déjà cohérent avec les 4,70 m.
+- **124 = ON** (offset de +2 °C en chaud) : si la maison se stabilise à `consigne + 2`, c'est lui.
+  À mesurer quand il fera franchement froid avant de décider d'une compensation.
+- **125 = Extra-bas** : compresseur arrêté, le ventilateur continue de souffler de l'air non chauffé —
+  ressenti comme un courant d'air froid dans les pièces à clapet ouvert. Candidat au passage sur
+  « Arrêt », à tester d'abord pour le confort.
+- **101 = OFF** : après une coupure de courant, l'unité **ne redémarre pas seule**. C'est à la reprise
+  après coupure de la relancer.
+- **111 non supporté** — le seul code que cette unité n'expose pas.
+- Les capteurs d'énergie (`puissance_absorbee`, `energie_consommee`, `heures_de_fonctionnement`)
+  renvoient 0 : cette unité ne les publie pas.
+
+**Ce que le protocole ne fournit pas** : aucune horloge, aucune date, aucun programme horaire. Le
+CN105 de ce composant n'expose ni réglage de l'heure ni plages de fonctionnement — les seules
+horloges sont celles de Home Assistant, et c'est l'intégration qui décide *quand* chauffer.
+
+## 13. Ce qui reste ouvert
 
 - Les **helpers de l'ancien chantier ont été supprimés le 03/11/2026** : les 6 `switch.clapet_*` de
   `templates.yaml` (sauvegarde `/config/_backup_templates_clapets_20261103-161118/`) et le helper
