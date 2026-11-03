@@ -136,9 +136,25 @@ proposé ni honoré.
 ### 4 bis — Recalibrer les clapets (`button.clim_zonage_recalibrer_les_clapets`)
 
 Un clapet est **tout-ou-rien et ne renvoie aucune position** : son état dans Home Assistant n'est
-qu'une croyance, mise à jour à l'expiration de sa course. Si le réel a divergé — clapet déplacé à la
-main, coupure de courant pendant une course, ordre Stop — l'intégration peut croire ouvert un clapet
-fermé (et inversement).
+qu'une croyance. Après un déplacement manuel, une coupure de courant pendant une course ou un ordre
+Stop, le réel peut avoir divergé.
+
+Le bouton demande simplement à **renvoyer l'ordre à chaque clapet au cycle suivant**, dans la
+position déjà voulue, **qu'il y ait changement d'état ou non**. Ce n'est pas un cycle de fermeture :
+rien n'est inversé, aucun chauffage n'est interrompu, et un clapet réellement bien positionné ne
+bouge pas (une commande vers la position où il se trouve déjà ne l'entraîne pas).
+
+Vérifié en direct — appui du bouton, cycle suivant :
+
+```
+18:01:36  Recalibration demandée : les ordres seront renvoyés au prochain cycle
+18:01:41  Zone Batcave : fermeture        Zone Noemie : ouverture (déjà ouverte, réaffirmée)
+          Zone Salle de jeux : fermeture  Zone Nous : fermeture
+          Zone Alice : fermeture          Zone Salle a manger : fermeture
+```
+
+Soit **6 zones / 7 clapets** réaffirmés en un cycle de 30 s, sans coupure. Le délai maximum
+d'application est le `cycle_seconds` (30 s par défaut), exposé par l'attribut `delai_max_s`.
 
 Le bouton fait alors le seul geste qui remet tout d'accord :
 

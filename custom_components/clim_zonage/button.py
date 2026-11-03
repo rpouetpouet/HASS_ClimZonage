@@ -7,7 +7,7 @@ from homeassistant.const import EntityCategory
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import CONF_DAMPER_COURSE, DOMAIN, NAME
+from .const import CONF_CYCLE_SECONDS, DOMAIN, NAME
 from .coordinator import ZonageCoordinator
 
 
@@ -17,12 +17,14 @@ async def async_setup_entry(hass, entry, async_add_entities):
 
 
 class RecalibrationButton(CoordinatorEntity[ZonageCoordinator], ButtonEntity):
-    """Cycle forcé : tout fermer, attendre la course, rouvrir selon la demande.
+    """Réaffirme la position voulue sur tous les clapets, sans rien inverser.
 
-    Nécessaire parce qu'un clapet ne renvoie aucune position : son état dans HA
-    n'est qu'une croyance, mise à jour à l'expiration de la course. Après un
-    déplacement manuel, une coupure de courant pendant une course ou un ordre
-    Stop, seul un cycle complet réaligne le réel sur la croyance.
+    Un clapet ne renvoie aucune position : son état dans HA n'est qu'une
+    croyance. Après un déplacement manuel, une coupure de courant pendant une
+    course ou un ordre Stop, le réel peut avoir divergé. Ce bouton demande à
+    renvoyer l'ordre à chaque clapet au cycle suivant — dans la position déjà
+    voulue, qu'il y ait changement d'état ou non. Aucun chauffage n'est
+    interrompu, et un clapet réellement bien positionné ne bouge pas.
     """
 
     _attr_has_entity_name = True
@@ -45,16 +47,14 @@ class RecalibrationButton(CoordinatorEntity[ZonageCoordinator], ButtonEntity):
     def extra_state_attributes(self) -> dict:
         data = self.coordinator.data
         return {
-            "en_cours": self.coordinator.recalibrating,
-            "duree_course_s": int(
-                self.coordinator.options.get(CONF_DAMPER_COURSE, 80)
-            ),
+            "demande_en_attente": self.coordinator.recalibration_demandee,
+            "delai_max_s": int(self.coordinator.options.get(CONF_CYCLE_SECONDS, 30)),
             "zones_ouvertes_avant": sorted(
                 z["name"] for z in (data.zones.values() if data else []) if z.get("open")
             ),
-            "avertissement": (
-                "Ferme tous les clapets pendant la durée de course : "
-                "aucun chauffage distribué pendant ce temps."
+            "effet": (
+                "Renvoie l'ordre open/close à tous les clapets au prochain cycle, "
+                "dans la position voulue : rien n'est inversé, aucun chauffage interrompu."
             ),
         }
 

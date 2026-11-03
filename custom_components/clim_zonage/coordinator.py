@@ -17,7 +17,6 @@ Règles non négociables encodées ici :
 
 from __future__ import annotations
 
-import asyncio
 import datetime
 import logging
 import time
@@ -160,7 +159,9 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         self._fire = False
         self._fire_takeover = False
         self.fire_force = False  # forcé par le switch « chauffage assuré par le feu »
-        self.recalibrating = False  # une recalibration des clapets est en cours
+        self._force_dampers_next = False
+        # Récalibration demandée : les ordres seront renvoyés au prochain cycle,
+        # que l'état corresponde déjà ou non (propriété lue par le bouton).
         self._off_closed = False  # les clapets ont-ils déjà été fermés pour cet arrêt ?
         self._unsub: list = []
 
@@ -227,8 +228,11 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
             # laisse la main : en mode arrêté, une ouverture manuelle d'un clapet
             # doit tenir (test, dépannage, pilotage par la télécommande murale).
             # Les refermer à chaque tick reviendrait à combattre l'utilisateur.
-            if not self._off_closed:
-                await self._async_apply_dampers(set(), force=True)
+            if not self._off_closed or self._force_dampers_next:
+                await self._async_apply_dampers(
+                    set(), force=True, force_all=self._force_dampers_next
+                )
+                self._force_dampers_next = False
                 self._off_closed = True
             # On garde les zones lisibles (consigne, température, mode `off`) :
             # l'utilisateur doit voir ce qui redémarrera, et `zone_modes` /
@@ -361,10 +365,16 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         if mode == HVAC_FAN_ONLY:
             wanted = {z.uid for z in self.zones if self.is_zone_active(z.uid)}
 
-        if self.recalibrating:
-            _LOGGER.debug("Recalibration en cours : la boucle ne touche pas aux clapets")
-        else:
-            await self._async_apply_dampers(wanted)
+        # Recalibration demandée : on force l'envoi à TOUS les clapets au cycle
+        # suivant, que leur état corresponde déjà ou non. Comme la commande part
+        # vers la position voulue (et non vers l'inverse), le clapet réellement
+        # dans le bon état ne bouge pas d'un pouce : sa course est déjà finie et
+        # `open_cover`/`close_cover` sur un volet déjà dans cet état ne
+        # l'entraîne pas. C'est le moyen le moins intrusif de réaligner le réel
+        # sur la croyance de l'intégration.
+        force_all = self._force_dampers_next
+        self._force_dampers_next = False
+        await self._async_apply_dampers(wanted, force_all=force_all)
 
         # 5. Bouches réellement ouvertes (mesuré, pas commandé) — on compte les
         #    CLAPETS physiques : la salle à manger en a deux, donc deux bouches.
@@ -444,8 +454,16 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         return self._state
 
     # ─── écritures ──────────────────────────────────────────────────────────
-    async def _async_apply_dampers(self, wanted: set[str], force: bool = False) -> None:
-        """Ouvre/ferme les clapets voulus, en respectant la durée de cycle."""
+    async def _async_apply_dampers(
+        self, wanted: set[str], force: bool = False, force_all: bool = False
+    ) -> None:
+        """Ouvre/ferme les clapets voulus, en respectant la durée de cycle.
+
+        `force` : ignore le verrou de cycle (utilisé à l'arrêt du système).
+        `force_all` : renvoie l'ordre à **toutes** les zones, même celles dont
+        l'état correspond déjà — c'est la recalibration, qui réaffirme la
+        position voulue sans pour autant inverser quoi que ce soit.
+        """
         now = time.monotonic()
         min_cycle = float(self.options.get(CONF_MIN_CYCLE))
         for zone in self.zones:
@@ -456,14 +474,14 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
             should_open = zone.uid in wanted
             is_open = any(s.state in (STATE_OPEN, STATE_OPENING) for s in known)
             is_closed = all(s.state in (STATE_CLOSED, "closing") for s in known)
-            if should_open == is_open:
+            if not force_all and should_open == is_open:
                 continue
-            if should_open and not is_closed and not force:
+            if should_open and not is_closed and not (force or force_all):
                 continue
-            if not force and not should_open and not is_open:
+            if not (force or force_all) and not should_open and not is_open:
                 continue
             last = self._last_toggle.get(zone.uid, 0.0)
-            if not force and now - last < min_cycle:
+            if not (force or force_all) and now - last < min_cycle:
                 _LOGGER.debug(
                     "Zone %s : cycle trop court (%.0fs < %.0fs), on attend",
                     zone.name,
@@ -592,29 +610,32 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         mode = self.mode if self.mode in (HVAC_HEAT, HVAC_COOL, HVAC_FAN_ONLY) else HVAC_HEAT
         return [HVAC_OFF, mode]
 
+    @property
+    def recalibration_demandee(self) -> bool:
+        """Vrai tant que la réaffirmation des ordres n'a pas eu lieu."""
+        return self._force_dampers_next
+
     async def async_recalibrate_dampers(self) -> None:
-        """Cycle forcé de tous les clapets : fermeture complète, puis réouverture selon la demande.
+        """Recalibration : réaffirmer la position voulue sur tous les clapets.
 
         Les clapets sont tout-ou-rien et ne renvoient **aucune** position :
-        l'état dans HA ne bascule qu'à l'expiration de la course. Si le réel a
-        divergé (clapet bougé à la main, coupure pendant une course, ordre Stop),
-        le seul moyen de remettre le réel d'accord avec la croyance de
-        l'intégration est un cycle complet.
+        l'état dans HA n'est qu'une croyance. Après un déplacement manuel, une
+        coupure pendant une course ou un ordre Stop, le réel peut diverger.
+
+        On ne ferme donc **plus** tout pour rouvrir ensuite : on demande
+        simplement à renvoyer l'ordre à chaque clapet au cycle suivant, dans la
+        position déjà voulue, qu'il y ait changement d'état ou non. Aucun
+        chauffage n'est interrompu, et un clapet réellement bien positionné ne
+        bouge pas.
         """
-        if self.recalibrating:
-            _LOGGER.info("Recalibration déjà en cours, ignoré")
+        if self._force_dampers_next:
+            _LOGGER.info("Recalibration déjà demandée, en attente du prochain cycle")
             return
-        course = int(self.options.get(CONF_DAMPER_COURSE, 80))
-        self.recalibrating = True
-        try:
-            _LOGGER.info(
-                "Recalibration des clapets : fermeture complète, attente de la course (%ds)",
-                course,
-            )
-            await self._async_apply_dampers(set(), force=True)
-            await asyncio.sleep(course + 5)
-            self._last_toggle.clear()
-            _LOGGER.info("Recalibration : réouverture selon la demande courante")
-            await self.async_refresh()
-        finally:
-            self.recalibrating = False
+        self._force_dampers_next = True
+        _LOGGER.info(
+            "Recalibration demandée : les ordres de clapet seront renvoyés au prochain cycle"
+        )
+        # Le cycle suivant part dans `cycle_seconds` au plus tard ; on ne force
+        # pas un refresh immédiat, la demande n'est pas urgente et un cycle
+        # propre évite de doubler une écriture déjà en cours.
+        await self.async_request_refresh()
