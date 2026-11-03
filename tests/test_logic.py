@@ -18,6 +18,7 @@ _LOGIC = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(_LOGIC)
 
 apply_min_vents = _LOGIC.apply_min_vents
+dump_is_available = _LOGIC.dump_is_available
 choose_fan = _LOGIC.choose_fan
 fire_detected = _LOGIC.fire_detected
 fire_takes_over = _LOGIC.fire_takes_over
@@ -144,6 +145,21 @@ def test_pas_de_battement_autour_du_seuil():
         etat = nouveau
     assert etat is True
     assert bascules == 1  # une seule bascule : on entre, on n'en sort plus
+
+
+def test_decharge_jamais_ouverte_si_le_feu_chauffe_la_piece():
+    # pièce froide et feu en prise en charge : on n'ouvre pas la décharge
+    assert dump_is_available("heat", 18.0, 19.5, True, True) is False
+    # même pièce, feu terminé : elle redevient une décharge normale
+    assert dump_is_available("heat", 18.0, 19.5, False, True) is True
+    # déjà au-dessus de sa consigne : on n'envoie pas d'air chaud
+    assert dump_is_available("heat", 20.0, 19.5, False, True) is False
+    # en froid, miroir
+    assert dump_is_available("cool", 23.0, 25.0, False, True) is False
+    assert dump_is_available("cool", 26.0, 25.0, False, True) is True
+    # sonde ou consigne indisponible : on laisse la décharge disponible
+    assert dump_is_available("heat", None, 19.5, False, True) is True
+    assert dump_is_available("heat", 18.0, None, False, True) is True
 
 
 def test_minimum_de_bouches_et_decharge():

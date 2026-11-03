@@ -73,6 +73,7 @@ from .logic import (
     apply_min_vents,
     choose_fan,
     clamp,
+    dump_is_available,
     fire_detected,
     fire_takes_over,
     generator_setpoint,
@@ -360,13 +361,13 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         dump_zone = next((z for z in self.zones if z.dump), None)
         dump_available = True
         if dump_zone is not None and mode in (HVAC_HEAT, HVAC_COOL):
-            dtemp = self._float_state(dump_zone.temp_sensor)
-            dtarget = self.zone_target(dump_zone.uid)
-            if dtemp is not None and dtarget is not None:
-                # ne pas ouvrir la décharge si elle est déjà au-delà de sa consigne
-                dump_available = (
-                    dtemp < dtarget if mode == HVAC_HEAT else dtemp > dtarget
-                )
+            dump_available = dump_is_available(
+                mode,
+                self._float_state(dump_zone.temp_sensor),
+                self.zone_target(dump_zone.uid),
+                self._fire_takeover,
+                dump_zone.fire_room,
+            )
         wanted = apply_min_vents(
             {z.uid for z in self.zones},
             demanding,

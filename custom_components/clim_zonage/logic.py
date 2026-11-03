@@ -181,6 +181,29 @@ def fire_takes_over(
     return room_temp >= temp_min
 
 
+def dump_is_available(
+    mode: str | None,
+    room_temp: float | None,
+    target: float | None,
+    fire_takeover: bool,
+    is_fire_room: bool,
+) -> bool:
+    """La zone de décharge peut-elle servir de filet de pression statique ?
+
+    Deux raisons de ne pas l'ouvrir : elle est déjà au-delà de sa consigne (on
+    enverrait de l'air chaud dans une pièce qui n'en veut pas), ou **c'est la
+    pièce que la cheminée chauffe** — ouvrir son clapet pour « faire du débit »
+    n'a aucun sens, le feu s'en occupe déjà. Sans cette seconde condition, un feu
+    actif et aucune pièce en demande rouvrait la salle à manger au nom du minimum
+    de bouches, juste après l'avoir retirée de la demande.
+    """
+    if is_fire_room and fire_takeover:
+        return False
+    if room_temp is None or target is None:
+        return True
+    return room_temp < target if mode == HEAT else room_temp > target
+
+
 def apply_min_vents(
     zones_openable: Iterable[str],
     demanding_zones: Iterable[str],
