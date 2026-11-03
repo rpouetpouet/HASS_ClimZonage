@@ -494,11 +494,16 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         mouvement ; sans ce nettoyage, un retour sur ON dans les 5 minutes
         laisserait les clapets fermés alors que des pièces demandent, et
         l'utilisateur conclurait que le système ne redémarre pas.
+
+        On rafraîchit **immédiatement** (`async_refresh`) et non via le
+        debouncer : une action humaine sur le master switch doit être visible
+        tout de suite, alors que `async_request_refresh` peut attendre la fin
+        du cooldown (jusqu'à 10 s) — mesuré le 03/11/2026.
         """
         if active and not self.active:
             self._last_toggle.clear()
         self.active = active
-        await self.async_request_refresh()
+        await self.async_refresh()
 
     async def async_set_global_mode(self, mode: str) -> None:
         """Changer le mode global aligne les zones (garde-fou « mode interdit »)."""
@@ -507,7 +512,7 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
             for uid, zmode in list(self.zone_modes.items()):
                 if zmode != HVAC_OFF:
                     self.zone_modes[uid] = mode
-        await self.async_request_refresh()
+        await self.async_refresh()
 
     async def async_set_zone_target(self, uid: str, target: float) -> None:
         self.zone_targets[uid] = snap(clamp(target, MIN_TEMP, MAX_TEMP), TEMP_STEP)
