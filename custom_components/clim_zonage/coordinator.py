@@ -224,12 +224,18 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
             for zone in self.zones:
                 zdata_off[zone.uid] = {
                     "name": zone.name,
+                    # Le mode AFFICHÉ reste celui mémorisé : si on exposait `off`
+                    # pendant l'arrêt, RestoreEntity enregistrerait `off` et un
+                    # redémarrage de HA survenu master éteint ferait perdre les
+                    # modes des zones. L'arrêt se lit sur `systeme_actif` et sur
+                    # hvac_action, pas en maquillant chaque zone.
+                    "mode": self.zone_mode(zone.uid),
                     "temp": self._float_state(zone.temp_sensor),
                     "target": self.zone_target(zone.uid),
-                    "mode": HVAC_OFF,
                     "demand": False,
                     "fire_room": zone.fire_room,
                     "open": False,
+                    "system_off": True,
                 }
             self._state = ZonageState(
                 active=False, mode=HVAC_OFF, zones=zdata_off, strategy="off"

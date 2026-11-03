@@ -106,7 +106,7 @@ class ZoneClimate(CoordinatorEntity[ZonageCoordinator], ClimateEntity, RestoreEn
     @property
     def hvac_action(self) -> HVACAction | None:
         zdata = self._zdata
-        if zdata.get("mode") == HVAC_OFF:
+        if zdata.get("system_off") or zdata.get("mode") == HVAC_OFF:
             return HVACAction.OFF
         if zdata.get("demand"):
             return (
