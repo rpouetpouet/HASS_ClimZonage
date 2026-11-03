@@ -25,6 +25,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
             DemandingZonesSensor(coordinator, entry),
             StrategySensor(coordinator, entry),
             SondesIndisponiblesSensor(coordinator, entry),
+            ProchainCycleSensor(coordinator, entry),
         ]
     )
 
@@ -197,4 +198,36 @@ class SondesIndisponiblesSensor(_Base):
             "indisponibles": sorted(coord.sensor_ko),
             "figees": sorted(coord.sensor_figes),
             "detail": coord.sensor_ko,
+        }
+
+
+class ProchainCycleSensor(_Base):
+    """Échéance du prochain tour de décision de la boucle.
+
+    Horodatage (device_class `timestamp`) : Home Assistant l'affiche en temps
+    relatif (« dans 12 s »). La boucle tourne aussi sur événement (changement de
+    sonde ou de clapet), donc cette échéance est le **pire cas** : le prochain
+    calcul aura lieu au plus tard à cet instant.
+    """
+
+    _attr_name = "Prochain cycle"
+    _attr_icon = "mdi:timer-sand"
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+
+    def __init__(self, coordinator, entry):
+        super().__init__(coordinator, entry, "prochain_cycle")
+
+    @property
+    def native_value(self):
+        return self.coordinator.next_cycle
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        coord = self.coordinator
+        return {
+            "periode_s": coord.cycle_seconds,
+            "derniere_boucle": coord.last_cycle.isoformat()
+            if coord.last_cycle
+            else None,
+            "min_cycle_s": coord.options.get("min_cycle"),
         }

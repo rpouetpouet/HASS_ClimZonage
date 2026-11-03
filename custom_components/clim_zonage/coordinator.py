@@ -34,6 +34,7 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_CYCLE_SECONDS,
@@ -150,6 +151,9 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
 
     def __init__(self, hass: HomeAssistant, entry, zones: list[Zone], options: dict):
         cycle = int(options.get(CONF_CYCLE_SECONDS, 30))
+        self.cycle_seconds = cycle
+        self.next_cycle: datetime | None = None
+        self.last_cycle: datetime | None = None
         super().__init__(
             hass,
             _LOGGER,
@@ -720,6 +724,10 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
             engine_setpoint=setpoint,
             virtual_temp=virtual,
             strategy=effective,
+        )
+        self.last_cycle = dt_util.utcnow()
+        self.next_cycle = self.last_cycle + datetime.timedelta(
+            seconds=self.cycle_seconds
         )
         return self._state
 
