@@ -207,9 +207,24 @@ possible à tout moment avec les YAML sauvegardés (voir §10).
 `switch.clim_zonage_systeme_actif` est le **point d'accroche unique** :
 
 - **ON** : le système pilote librement, selon les consignes des pièces.
-- **OFF** : gainable éteint, tous les clapets fermés, prise en charge cheminée désarmée.
+- **OFF** : tout s'arrête, et c'est le **seul** chemin d'extinction.
 
-Une automatisation de présence peut donc passer le système en manuel en éteignant ce switch, sans
+Ce qui se passe exactement en passant sur OFF (mesuré le 03/11/2026, effet en ~3 s) :
+
+- le gainable reçoit `hvac_mode: off` ;
+- **les 7 clapets se ferment d'autorité**, sans attendre la durée de cycle minimum (course de 67 s) ;
+- `sensor.clim_zonage_strategie_moteur` passe à `off`, la température déportée n'est plus envoyée
+  (l'unité retomberait sur sa sonde interne après 15 min, sans conséquence puisqu'elle est éteinte) ;
+- les thermostats de pièce **restent lisibles** : consigne et température affichées, action `off`.
+  Leurs modes et consignes sont **mémorisés** — au rallumage, tout revient tel quel, immédiatement
+  (le verrou de cycle minimum est levé exprès pour que les clapets puissent rouvrir tout de suite) ;
+- l'état du switch **survit à un redémarrage** de Home Assistant.
+
+Pendant l'arrêt, la télécommande murale reprend la main sans que rien ne vienne la contredire, et
+aucun clapet ne bouge. C'est donc l'état à utiliser pour une absence, ou pour laisser un tiers
+piloter à la main.
+
+Une automatisation de présence peut passer le système en manuel en éteignant ce switch, sans
 connaître l'intérieur du système. Aucune autre automatisation ne doit commander `climate.clim_master`
 ni les clapets : elle serait écrasée au tick suivant, et c'est la porte ouverte aux incohérences.
 
