@@ -391,3 +391,8 @@ horloges sont celles de Home Assistant, et c'est l'intégration qui décide *qua
 - La **vitesse `middle`** n'est pas utilisée par le mapping actuel ; à valider à l'oreille si besoin.
 - Le pont de la **Clim SdB Nous** (`clim-sdbnous`) est resté sur le composant natif : cette unité
   n'appartient pas au zonage et n'a pas besoin de température déportée.
+- **Mesure d'efficacité** : `tools/analyser_efficacite.py` calcule par pièce le gain utile, la dérive
+  nocturne, le temps de satisfaction et la fréquence de demande ; un cron l'exécute chaque lundi 9 h
+  et envoie le relevé. Premier verdict exploitable après quelques jours de chauffage réel, et les
+  réglages par pièce (bande morte, anticipation, priorité de débit) ne seront ajoutés que si les
+  données les réclament.

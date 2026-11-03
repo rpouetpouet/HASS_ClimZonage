@@ -113,6 +113,21 @@ La stratégie se change dans les options, sans redéploiement.
 Un exemple de dashboard « Chauffage » (pilotage, zones, diagnostic) est fourni dans
 [`docs/dashboard-example.yaml`](docs/dashboard-example.yaml).
 
+## Relevé d'efficacité (hebdomadaire)
+
+`tools/analyser_efficacite.py` lit `/api/history` (aucune entité créée, aucun impact sur HA) et
+calcule, pièce par pièce : **gain utile** (°C/h clapet ouvert et compresseur en marche), **dérive
+nocturne** (°C/h clapet fermé, machine à l'arrêt), **temps de satisfaction** (durée médiane d'un
+épisode de demande) et **fréquence de demande**. Il en déduit des verdicts : pièce qui reçoit peu
+d'air (bout de réseau, bouche étranglée → anticipation), pièce qui perd vite (déperdition → chauffer
+plus tôt, pas plus de débit), pièce lente à servir, pièce qui redemande sans cesse, pièce qui dépasse
+sa consigne (→ bande morte plus large).
+
+    python3 tools/analyser_efficacite.py --days 7
+
+Un cron Hermes (`Clim — efficacité par pièce (hebdo)`, job `ffaf93713c5a`) l'exécute chaque **lundi
+9 h** via `~/.hermes/scripts/clim_efficacite.sh` et envoie le relevé sur Telegram.
+
 ## Licence
 
 MIT.
