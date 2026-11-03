@@ -256,7 +256,11 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
                     "system_off": True,
                 }
             self._state = ZonageState(
-                active=False, mode=HVAC_OFF, zones=zdata_off, strategy="off"
+                active=False,
+                mode=HVAC_OFF,
+                zones=zdata_off,
+                strategy="off",
+                open_vents=sum(1 for z in zdata_off.values() if z.get("open")),
             )
             return self._state
 
