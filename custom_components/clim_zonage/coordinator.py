@@ -161,6 +161,7 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         self._fire_takeover = False
         self.fire_force = False  # forcé par le switch « chauffage assuré par le feu »
         self.recalibrating = False  # une recalibration des clapets est en cours
+        self._off_closed = False  # les clapets ont-ils déjà été fermés pour cet arrêt ?
         self._unsub: list = []
 
     # ─── cycle de vie ───────────────────────────────────────────────────────
@@ -222,12 +223,23 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         # 1. MASTER OFF → tout s'arrête, et c'est le seul `off` du système.
         if not self.active:
             await self._async_engine_off()
-            await self._async_apply_dampers(set(), force=True)
+            # On ferme les clapets UNE SEULE FOIS à l'entrée en arrêt, puis on
+            # laisse la main : en mode arrêté, une ouverture manuelle d'un clapet
+            # doit tenir (test, dépannage, pilotage par la télécommande murale).
+            # Les refermer à chaque tick reviendrait à combattre l'utilisateur.
+            if not self._off_closed:
+                await self._async_apply_dampers(set(), force=True)
+                self._off_closed = True
             # On garde les zones lisibles (consigne, température, mode `off`) :
             # l'utilisateur doit voir ce qui redémarrera, et `zone_modes` /
             # `zone_targets` restent intacts pour la réactivation.
             zdata_off: dict[str, dict[str, Any]] = {}
             for zone in self.zones:
+                states = [self.hass.states.get(d) for d in zone.dampers]
+                is_open = any(
+                    s is not None and s.state in (STATE_OPEN, STATE_OPENING)
+                    for s in states
+                )
                 zdata_off[zone.uid] = {
                     "name": zone.name,
                     # Le mode AFFICHÉ reste celui mémorisé : si on exposait `off`
@@ -240,7 +252,7 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
                     "target": self.zone_target(zone.uid),
                     "demand": False,
                     "fire_room": zone.fire_room,
-                    "open": False,
+                    "open": is_open,
                     "system_off": True,
                 }
             self._state = ZonageState(
@@ -525,6 +537,10 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         if active and not self.active:
             self._last_toggle.clear()
         self.active = active
+        # Un nouvel ordre explicite (ON ou OFF) réarme la fermeture d'office des
+        # clapets : en OFF on ne ferme qu'une fois, ensuite la main est à
+        # l'utilisateur (ouverture manuelle, télécommande murale).
+        self._off_closed = False
         await self.async_refresh()
 
     async def async_set_global_mode(self, mode: str) -> None:
