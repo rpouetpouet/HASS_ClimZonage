@@ -116,7 +116,7 @@ class SondesOperationnellesBinarySensor(_Base):
 
     @property
     def is_on(self) -> bool:
-        return bool(self.coordinator.sensor_ko)
+        return bool(self.coordinator.sensor_ko) or bool(self.coordinator.sensor_figes)
 
     @property
     def extra_state_attributes(self) -> dict:
@@ -125,5 +125,15 @@ class SondesOperationnellesBinarySensor(_Base):
             "mode": coord.watchdog,
             "sondes_suivies": coord.sensor_total,
             "sondes_indisponibles": sorted(coord.sensor_ko),
+            "sondes_figees": sorted(coord.sensor_figes),
             "detail": coord.sensor_ko,
+            "etat_par_sonde": {
+                i["nom"]: {
+                    "valeur": i["valeur"],
+                    "age_paquet_min": i["age_paquet_min"],
+                    "valeur_inchangee_h": i["valeur_inchangee_h"],
+                    "figee": i["figee"],
+                }
+                for i in coord.sensor_info.values()
+            },
         }

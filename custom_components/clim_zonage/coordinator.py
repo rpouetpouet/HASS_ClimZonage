@@ -37,6 +37,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import (
     CONF_CYCLE_SECONDS,
+    CONF_SENSOR_FROZEN_H,
     CONF_SENSOR_GRACE_S,
     CONF_SENSOR_TIMEOUT_MIN,
     CONF_DAMPER_COURSE,
@@ -68,6 +69,7 @@ from .const import (
     HVAC_OFF,
     MAX_TEMP,
     MIN_TEMP,
+    DEFAULT_SENSOR_FROZEN_H,
     DEFAULT_SENSOR_GRACE_S,
     DEFAULT_SENSOR_TIMEOUT_MIN,
     STRATEGY_REMOTE,
@@ -183,6 +185,9 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         self._sensor_last_ok: dict[str, float] = {}
         self._ko_since: float | None = None
         self.sensor_ko: dict[str, dict] = {}
+        self.sensor_info: dict[str, dict] = {}
+        self.sensor_figes: list[str] = []
+        self._frozen_notified = False
         self.sensor_total: int = 0
         self.watchdog: str = MODE_NORMAL
         self._ko_notified = False
@@ -273,11 +278,31 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
 
         ko: dict[str, dict] = {}
         ko_zones: set[str] = set()
+        info: dict[str, dict] = {}
         timeout = float(
             opts.get(CONF_SENSOR_TIMEOUT_MIN, DEFAULT_SENSOR_TIMEOUT_MIN)
         ) * 60
         for eid, name in essential.items():
-            if self._float_state(eid) is not None:
+            state = self.hass.states.get(eid)
+            raw = self._float_state(eid)
+            age_paquet = (
+                None
+                if state is None
+                else round((now_ts - state.last_updated.timestamp()) / 60, 1)
+            )
+            inchangee_h = (
+                None
+                if state is None
+                else round((now_ts - state.last_changed.timestamp()) / 3600, 1)
+            )
+            info[eid] = {
+                "nom": name,
+                "valeur": raw,
+                "age_paquet_min": age_paquet,
+                "valeur_inchangee_h": inchangee_h,
+                "figee": False,
+            }
+            if raw is not None:
                 self._sensor_last_ok[eid] = now_ts
             last = self._sensor_last_ok.get(eid)
             age = None if last is None else now_ts - last
@@ -291,6 +316,41 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
                 if zone.temp_sensor == eid:
                     ko_zones.add(zone.uid)
         self.sensor_ko = ko
+
+        # Sonde « figée » : elle répond (valeur numérique valide) mais sa valeur ne
+        # bouge plus depuis des heures alors que d'autres pièces évoluent. C'est le
+        # cas qui a piégé le 03/11 : un capteur BLE émettait 136 paquets en 3 h…
+        # toujours 19.4 pendant que la pièce montait à 21.6. Invisible pour un test
+        # « disponible / indisponible ».
+        frozen_h = float(opts.get(CONF_SENSOR_FROZEN_H, DEFAULT_SENSOR_FROZEN_H))
+        zone_sensors = {z.temp_sensor for z in self.zones if z.temp_sensor}
+        actifs = [
+            eid
+            for eid, i in info.items()
+            if eid in zone_sensors
+            and i["valeur_inchangee_h"] is not None
+            and i["valeur_inchangee_h"] < 1.0
+        ]
+        figes: list[str] = []
+        for eid, i in info.items():
+            if eid not in zone_sensors:
+                continue
+            inchangee = i["valeur_inchangee_h"]
+            if inchangee is None or inchangee < frozen_h:
+                continue
+            # au moins une autre pièce a bougé dans l'heure : le silence est suspect
+            if len([a for a in actifs if a != eid]) < 1:
+                continue
+            i["figee"] = True
+            figes.append(eid)
+        self.sensor_info = info
+        self.sensor_figes = figes
+        if figes and not self._frozen_notified:
+            self._frozen_notified = True
+            self.hass.async_create_task(self._async_notify_frozen(figes, info))
+        elif not figes and self._frozen_notified:
+            self._frozen_notified = False
+            self.hass.async_create_task(self._async_dismiss_frozen())
 
         if ko and self._ko_since is None:
             self._ko_since = now_ts
@@ -339,6 +399,38 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
                 "title": "Zonage clim : sonde(s) indisponible(s)",
                 "message": message,
             },
+            blocking=False,
+        )
+
+    async def _async_notify_frozen(self, figes: list[str], info: dict[str, dict]) -> None:
+        details = "\n".join(
+            f"- **{info[e]['nom']}** : {info[e]['valeur']} °C, inchangée depuis "
+            f"{info[e]['valeur_inchangee_h']} h (dernier paquet il y a "
+            f"{info[e]['age_paquet_min']} min)"
+            for e in figes
+        )
+        await self.hass.services.async_call(
+            "persistent_notification",
+            "create",
+            {
+                "notification_id": "clim_zonage_sondes_figees",
+                "title": "Zonage clim : sonde probablement figée",
+                "message": (
+                    "Une sonde de pièce répond mais sa valeur ne bouge plus, alors que "
+                    "d'autres pièces évoluent :\n\n"
+                    f"{details}\n\n"
+                    "Le zonage continue de l'utiliser — vérifier l'appareil (pile, portée, "
+                    "emplacement) ou lancer le bouton de recalibration après correction."
+                ),
+            },
+            blocking=False,
+        )
+
+    async def _async_dismiss_frozen(self) -> None:
+        await self.hass.services.async_call(
+            "persistent_notification",
+            "dismiss",
+            {"notification_id": "clim_zonage_sondes_figees"},
             blocking=False,
         )
 

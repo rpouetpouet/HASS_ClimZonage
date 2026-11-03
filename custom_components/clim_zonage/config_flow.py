@@ -16,6 +16,7 @@ from homeassistant.util import slugify
 from .const import (
     CONF_CYCLE_SECONDS,
     CONF_DAMPER_COURSE,
+    CONF_SENSOR_FROZEN_H,
     CONF_SENSOR_GRACE_S,
     CONF_SENSOR_TIMEOUT_MIN,
     CONF_DEADBAND,
@@ -53,6 +54,7 @@ from .const import (
     DEFAULT_MARGIN,
     DEFAULT_MIN_CYCLE,
     DEFAULT_MIN_VENTS,
+    DEFAULT_SENSOR_FROZEN_H,
     DEFAULT_SENSOR_GRACE_S,
     DEFAULT_SENSOR_TIMEOUT_MIN,
     DEFAULT_STRATEGY,
@@ -80,6 +82,7 @@ GLOBAL_DEFAULTS: dict[str, Any] = {
     CONF_DAMPER_COURSE: DEFAULT_DAMPER_COURSE,
     CONF_SENSOR_TIMEOUT_MIN: DEFAULT_SENSOR_TIMEOUT_MIN,
     CONF_SENSOR_GRACE_S: DEFAULT_SENSOR_GRACE_S,
+    CONF_SENSOR_FROZEN_H: DEFAULT_SENSOR_FROZEN_H,
 }
 
 
@@ -218,6 +221,13 @@ def _global_schema(current: dict) -> vol.Schema:
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=0, max=1800, step=10, mode=selector.NumberSelectorMode.BOX
+                )
+            ),
+            vol.Required(
+                CONF_SENSOR_FROZEN_H, default=cur[CONF_SENSOR_FROZEN_H]
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1, max=48, step=1, mode=selector.NumberSelectorMode.BOX
                 )
             ),
         }

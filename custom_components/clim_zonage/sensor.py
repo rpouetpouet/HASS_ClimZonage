@@ -186,7 +186,7 @@ class SondesIndisponiblesSensor(_Base):
 
     @property
     def native_value(self) -> int:
-        return len(self.coordinator.sensor_ko)
+        return len(self.coordinator.sensor_ko) + len(self.coordinator.sensor_figes)
 
     @property
     def extra_state_attributes(self) -> dict:
@@ -194,5 +194,7 @@ class SondesIndisponiblesSensor(_Base):
         return {
             "mode": coord.watchdog,
             "sondes_suivies": coord.sensor_total,
+            "indisponibles": sorted(coord.sensor_ko),
+            "figees": sorted(coord.sensor_figes),
             "detail": coord.sensor_ko,
         }
