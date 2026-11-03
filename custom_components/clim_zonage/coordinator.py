@@ -250,6 +250,17 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
 
         mode = self.mode if self.mode in (HVAC_HEAT, HVAC_COOL, HVAC_FAN_ONLY) else HVAC_HEAT
 
+        # Une zone restée dans le mode opposé (changement de saison, redémarrage
+        # entre deux restaurations d'état) est réalignée d'office : sinon elle
+        # afficherait un mode qui n'est ni proposé ni honoré.
+        if mode in (HVAC_HEAT, HVAC_COOL):
+            for uid, zmode in list(self.zone_modes.items()):
+                if zmode in (HVAC_HEAT, HVAC_COOL) and zmode != mode:
+                    _LOGGER.info(
+                        "Zone %s : mode %s interdit (maison en %s), réaligné", uid, zmode, mode
+                    )
+                    self.zone_modes[uid] = mode
+
         # 2. Cheminée : détection (panache) puis prise en charge (plancher de pièce)
         fire_zone = next((z for z in self.zones if z.fire_room), None)
         room_temp = self._float_state(fire_zone.temp_sensor) if fire_zone else None
@@ -540,12 +551,15 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         Une zone ne doit pas pouvoir être réglée en froid quand la maison est en
         chaud : l'ancienne garde-fou annulait la demande, mais la carte affichait
         quand même « cool » et laissait croire que la pièce refroidissait.
+        En ventilation seule (`fan_only`) on reste permissif : les modes sont
+        inertes, et les forcer à `off` obligerait à réarmer chaque zone au
+        retour de la saison.
         """
         if self.mode == HVAC_HEAT:
             return [HVAC_OFF, HVAC_HEAT]
         if self.mode == HVAC_COOL:
             return [HVAC_OFF, HVAC_COOL]
-        return [HVAC_OFF]
+        return [HVAC_OFF, HVAC_HEAT, HVAC_COOL]
 
     async def async_recalibrate_dampers(self) -> None:
         """Cycle forcé de tous les clapets : fermeture complète, puis réouverture selon la demande.
