@@ -14,6 +14,8 @@ from homeassistant.helpers import selector
 from homeassistant.util import slugify
 
 from .const import (
+    CONF_CYCLE_SECONDS,
+    CONF_DAMPER_COURSE,
     CONF_DEADBAND,
     CONF_ENGINE,
     CONF_FALLBACK_COOL,
@@ -35,6 +37,8 @@ from .const import (
     CONF_ZONE_SENSOR,
     CONF_ZONE_UID,
     CONF_ZONES,
+    DEFAULT_CYCLE_SECONDS,
+    DEFAULT_DAMPER_COURSE,
     DEFAULT_DEADBAND,
     DEFAULT_FALLBACK_COOL,
     DEFAULT_FALLBACK_HEAT,
@@ -67,6 +71,8 @@ GLOBAL_DEFAULTS: dict[str, Any] = {
     CONF_FIRE_TEMP_MIN: DEFAULT_FIRE_TEMP_MIN,
     CONF_FIRE_TEMP_OFF: DEFAULT_FIRE_TEMP_OFF,
     CONF_FAN_THRESHOLDS: DEFAULT_FAN_THRESHOLDS,
+    CONF_CYCLE_SECONDS: DEFAULT_CYCLE_SECONDS,
+    CONF_DAMPER_COURSE: DEFAULT_DAMPER_COURSE,
 }
 
 
@@ -170,6 +176,20 @@ def _global_schema(current: dict) -> vol.Schema:
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=12, max=23, step=0.5, mode=selector.NumberSelectorMode.BOX
+                )
+            ),
+            vol.Required(
+                CONF_CYCLE_SECONDS, default=cur[CONF_CYCLE_SECONDS]
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=10, max=900, step=5, mode=selector.NumberSelectorMode.BOX
+                )
+            ),
+            vol.Required(
+                CONF_DAMPER_COURSE, default=cur[CONF_DAMPER_COURSE]
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=30, max=300, step=5, mode=selector.NumberSelectorMode.BOX
                 )
             ),
         }

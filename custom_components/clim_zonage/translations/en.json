@@ -58,7 +58,9 @@
           "fire_delta_on": "Feu : écart de détection (°C)",
           "fire_delta_off": "Feu : écart de descente (°C)",
           "fire_temp_min": "Feu : température mini de la pièce pour chauffer seul (°C)",
-          "fire_temp_off": "Feu : température de désarmement (°C)"
+          "fire_temp_off": "Feu : température de désarmement (°C)",
+          "cycle_seconds": "Période de la boucle de décision (s)",
+          "damper_course": "Durée de course d'un clapet (s)"
         }
       },
       "add_zone": {

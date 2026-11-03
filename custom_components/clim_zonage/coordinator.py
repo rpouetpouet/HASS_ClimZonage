@@ -17,6 +17,8 @@ Règles non négociables encodées ici :
 
 from __future__ import annotations
 
+import asyncio
+import datetime
 import logging
 import time
 from dataclasses import dataclass, field
@@ -35,6 +37,8 @@ from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import (
+    CONF_CYCLE_SECONDS,
+    CONF_DAMPER_COURSE,
     CONF_DEADBAND,
     CONF_ENGINE,
     CONF_FALLBACK_COOL,
@@ -130,11 +134,12 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
     """Boucle de décision du zonage."""
 
     def __init__(self, hass: HomeAssistant, entry, zones: list[Zone], options: dict):
+        cycle = int(options.get(CONF_CYCLE_SECONDS, 30))
         super().__init__(
             hass,
             _LOGGER,
             name=f"{DOMAIN}",
-            update_interval=__import__("datetime").timedelta(seconds=TICK_SECONDS),
+            update_interval=datetime.timedelta(seconds=cycle),
         )
         self.entry = entry
         self.zones = zones
@@ -155,6 +160,7 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         self._fire = False
         self._fire_takeover = False
         self.fire_force = False  # forcé par le switch « chauffage assuré par le feu »
+        self.recalibrating = False  # une recalibration des clapets est en cours
         self._unsub: list = []
 
     # ─── cycle de vie ───────────────────────────────────────────────────────
@@ -316,7 +322,10 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         if mode == HVAC_FAN_ONLY:
             wanted = {z.uid for z in self.zones if self.is_zone_active(z.uid)}
 
-        await self._async_apply_dampers(wanted)
+        if self.recalibrating:
+            _LOGGER.debug("Recalibration en cours : la boucle ne touche pas aux clapets")
+        else:
+            await self._async_apply_dampers(wanted)
 
         # 5. Bouches réellement ouvertes (mesuré, pas commandé)
         open_vents = 0
@@ -524,3 +533,43 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         else:
             self.zone_modes[uid] = mode
         await self.async_request_refresh()
+
+    def allowed_zone_modes(self) -> list[str]:
+        """Modes qu'une zone peut prendre, selon le mode global.
+
+        Une zone ne doit pas pouvoir être réglée en froid quand la maison est en
+        chaud : l'ancienne garde-fou annulait la demande, mais la carte affichait
+        quand même « cool » et laissait croire que la pièce refroidissait.
+        """
+        if self.mode == HVAC_HEAT:
+            return [HVAC_OFF, HVAC_HEAT]
+        if self.mode == HVAC_COOL:
+            return [HVAC_OFF, HVAC_COOL]
+        return [HVAC_OFF]
+
+    async def async_recalibrate_dampers(self) -> None:
+        """Cycle forcé de tous les clapets : fermeture complète, puis réouverture selon la demande.
+
+        Les clapets sont tout-ou-rien et ne renvoient **aucune** position :
+        l'état dans HA ne bascule qu'à l'expiration de la course. Si le réel a
+        divergé (clapet bougé à la main, coupure pendant une course, ordre Stop),
+        le seul moyen de remettre le réel d'accord avec la croyance de
+        l'intégration est un cycle complet.
+        """
+        if self.recalibrating:
+            _LOGGER.info("Recalibration déjà en cours, ignoré")
+            return
+        course = int(self.options.get(CONF_DAMPER_COURSE, 80))
+        self.recalibrating = True
+        try:
+            _LOGGER.info(
+                "Recalibration des clapets : fermeture complète, attente de la course (%ds)",
+                course,
+            )
+            await self._async_apply_dampers(set(), force=True)
+            await asyncio.sleep(course + 5)
+            self._last_toggle.clear()
+            _LOGGER.info("Recalibration : réouverture selon la demande courante")
+            await self.async_refresh()
+        finally:
+            self.recalibrating = False

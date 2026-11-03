@@ -13,7 +13,7 @@ from .coordinator import ZonageCoordinator, build_zones
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS_LIST = ["climate", "switch", "select", "sensor", "binary_sensor"]
+PLATFORMS_LIST = ["climate", "switch", "select", "sensor", "binary_sensor", "button"]
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:

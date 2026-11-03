@@ -30,6 +30,8 @@ CONF_FIRE_DELTA_OFF = "fire_delta_off"
 CONF_FIRE_TEMP_MIN = "fire_temp_min"
 CONF_FIRE_TEMP_OFF = "fire_temp_off"
 CONF_FAN_THRESHOLDS = "fan_thresholds"
+CONF_CYCLE_SECONDS = "cycle_seconds"
+CONF_DAMPER_COURSE = "damper_course"
 
 STRATEGY_GENERATOR = "generator"
 STRATEGY_REMOTE = "remote"
@@ -48,6 +50,8 @@ DEFAULT_FIRE_DELTA_OFF = 2.0   # °C — hystérésis de descente
 DEFAULT_FIRE_TEMP_MIN = 19.0   # °C — la pièce doit être à ≥ 19 avant que le feu chauffe seul
 DEFAULT_FIRE_TEMP_OFF = 18.0   # °C — hystérésis basse (bûche qui couve / pièce qui refroidit)
 DEFAULT_FAN_THRESHOLDS = {"low": 2, "medium": 4, "high": 7}
+DEFAULT_CYCLE_SECONDS = 30     # période de la boucle de décision (30 s)
+DEFAULT_DAMPER_COURSE = 80     # s — course d'un clapet (maxtime du Shelly : 80 s, course réelle 67 s)
 
 # ─── Plages de consigne acceptées par les unités CN105 ──────────────────────
 MIN_TEMP = 16.0

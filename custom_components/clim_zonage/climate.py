@@ -14,6 +14,7 @@ from homeassistant.components.climate import (
     HVACMode,
 )
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -55,7 +56,6 @@ class ZoneClimate(CoordinatorEntity[ZonageCoordinator], ClimateEntity, RestoreEn
     _attr_min_temp = MIN_TEMP
     _attr_max_temp = MAX_TEMP
     _attr_supported_features = ClimateEntityFeature.TARGET_TEMPERATURE
-    _attr_hvac_modes = [HVACMode.OFF, HVACMode.HEAT, HVACMode.COOL]
 
     def __init__(self, coordinator: ZonageCoordinator, entry, zone):
         super().__init__(coordinator)
@@ -135,7 +135,21 @@ class ZoneClimate(CoordinatorEntity[ZonageCoordinator], ClimateEntity, RestoreEn
             return
         await self.coordinator.async_set_zone_target(self.zone.uid, float(temp))
 
+    @property
+    def hvac_modes(self) -> list[HVACMode]:
+        """Seuls les modes autorisés par le mode global sont proposés.
+
+        En chaud, une zone ne peut donc pas être réglée en froid : la sélection
+        erronée devient impossible au lieu d'être ignorée en silence avec une
+        carte qui afficherait « cool » sans rien refroidir.
+        """
+        return [_MODES[m] for m in self.coordinator.allowed_zone_modes()]
+
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
-        await self.coordinator.async_set_zone_mode(
-            self.zone.uid, _MODES_REVERSE.get(hvac_mode, HVAC_OFF)
-        )
+        mode = _MODES_REVERSE.get(hvac_mode, HVAC_OFF)
+        if mode not in self.coordinator.allowed_zone_modes():
+            raise HomeAssistantError(
+                f"Mode « {hvac_mode} » interdit : la maison est en "
+                f"« {self.coordinator.mode} ». Change d'abord le mode global."
+            )
+        await self.coordinator.async_set_zone_mode(self.zone.uid, mode)
