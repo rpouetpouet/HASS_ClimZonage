@@ -99,6 +99,7 @@ from .logic import (
     fire_detected,
     fire_takes_over,
     generator_setpoint,
+    MODE_DEGRADE,
     MODE_GELE,
     MODE_NORMAL,
     watchdog_mode,
@@ -225,6 +226,18 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
             # de boucle (`cycle_seconds`) suffit largement à repérer un mouvement
             # fait à la main (télécommande murale, test).
             watched.add(zone.temp_sensor)
+
+        # Amorçage du chien de garde : sans ça, `_sensor_last_ok` est vide au
+        # démarrage, donc `age is None` pour toutes les sondes et elles sont
+        # TOUTES déclarées muettes au premier passage (constaté le 04/11/2026 :
+        # alerte 8 s après le boot, avec les 7 sondes listées, alors qu'elles
+        # répondaient toutes). On part de « maintenant » : une sonde doit
+        # réellement rester `sensor_timeout_min` sans mesure pour être en défaut,
+        # ce qui est la sémantique annoncée par le réglage.
+        maintenant = time.time()
+        for entite in watched:
+            self._sensor_last_ok.setdefault(entite, maintenant)
+
         self._unsub.append(
             async_track_state_change_event(
                 self.hass, list(watched), self._handle_state_change
@@ -391,7 +404,11 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
             float(opts.get(CONF_SENSOR_GRACE_S, DEFAULT_SENSOR_GRACE_S)),
         )
 
-        if ko and not self._ko_notified:
+        # L'alerte attend la fin du délai de grâce (`sensor_grace_s`, 120 s) : le
+        # gel couvre déjà les trous passagers pour les décisions, la notification
+        # suit le même calendrier. Sans ça, la moindre indisponibilité d'une
+        # seconde créait une notification persistante.
+        if ko and self.watchdog == MODE_DEGRADE and not self._ko_notified:
             self._ko_notified = True
             self.hass.async_create_task(self._async_notify_sensors(ko))
         elif not ko and self._ko_notified:
