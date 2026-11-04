@@ -258,16 +258,23 @@ def dump_is_available(
     target: float | None,
     fire_takeover: bool,
     is_fire_room: bool,
+    idle: bool = False,
 ) -> bool:
     """La zone de décharge peut-elle servir de filet de pression statique ?
 
-    Deux raisons de ne pas l'ouvrir : elle est déjà au-delà de sa consigne (on
-    enverrait de l'air chaud dans une pièce qui n'en veut pas), ou **c'est la
-    pièce que la cheminée chauffe** — ouvrir son clapet pour « faire du débit »
-    n'a aucun sens, le feu s'en occupe déjà. Sans cette seconde condition, un feu
-    actif et aucune pièce en demande rouvrait la salle à manger au nom du minimum
-    de bouches, juste après l'avoir retirée de la demande.
+    Trois cas :
+    - `idle` (aucune zone en demande, tout le monde à température) : la décharge ne
+      sert plus au confort mais au **débit** — on l'ouvre quels que soient sa propre
+      consigne et l'état de la cheminée. L'unité étant à sa consigne de repli, aucun
+      air chaud n'est envoyé dans une pièce qui n'en veut pas : c'est un clapet
+      ouvert pour la pression statique, pas un appel de chauffage.
+    - sinon, deux raisons de ne pas l'ouvrir : elle est déjà au-delà de sa consigne
+      (on enverrait de l'air chaud dans une pièce qui n'en veut pas), ou c'est la
+      pièce que la cheminée chauffe — ouvrir son clapet pour « faire du débit » n'a
+      pas de sens quand une autre zone demande, le feu s'en occupe déjà.
     """
+    if idle:
+        return True
     if is_fire_room and fire_takeover:
         return False
     if room_temp is None or target is None:

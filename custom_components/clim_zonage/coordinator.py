@@ -614,6 +614,8 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
                 self.zone_target(dump_zone.uid),
                 self._fire_takeover,
                 dump_zone.fire_room,
+                # aucune pièce en demande : la décharge sert au débit, pas au confort
+                idle=not demanding,
             )
         wanted = apply_min_vents(
             {z.uid for z in self.zones},
