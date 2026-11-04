@@ -59,6 +59,11 @@ DEFAULT_DAMPER_COURSE = 80     # s — course d'un clapet (maxtime du Shelly : 8
 DEFAULT_SENSOR_TIMEOUT_MIN = 10  # min — au-delà, une sonde est déclarée indisponible (chien de garde)
 DEFAULT_SENSOR_GRACE_S = 120     # s — gel total des décisions après la perte d'une sonde
 DEFAULT_SENSOR_FROZEN_H = 6.0    # h — au-delà, une sonde qui ne bouge plus est suspecte
+# Fenêtre de démarrage pendant laquelle on n'ENVOIE PAS de notification de sonde
+# manquante : au boot, les intégrations sources n'ont pas encore republié leurs
+# valeurs (une Aqara ne parle qu'une fois par heure), donc tout paraît muet.
+# Les décisions, elles, restent protégées par `sensor_timeout_min` + `sensor_grace_s`.
+STARTUP_NOTIFY_GRACE_S = 1800   # s — 30 min
 
 # ─── Plages de consigne acceptées par les unités CN105 ──────────────────────
 MIN_TEMP = 16.0

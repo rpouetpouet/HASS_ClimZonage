@@ -86,6 +86,7 @@ from .const import (
     DEFAULT_SENSOR_GRACE_S,
     DEFAULT_SENSOR_TIMEOUT_MIN,
     DEFAULT_STRATEGY,
+    STARTUP_NOTIFY_GRACE_S,
     STRATEGY_GENERATOR,
     STRATEGY_REMOTE,
     TEMP_STEP,
@@ -211,6 +212,7 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         self.sensor_total: int = 0
         self.watchdog: str = MODE_NORMAL
         self._ko_notified = False
+        self._started_at: float = time.time()
         self._unsub: list = []
 
     # ─── cycle de vie ───────────────────────────────────────────────────────
@@ -235,6 +237,7 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         # réellement rester `sensor_timeout_min` sans mesure pour être en défaut,
         # ce qui est la sémantique annoncée par le réglage.
         maintenant = time.time()
+        self._started_at = maintenant
         for entite in watched:
             self._sensor_last_ok.setdefault(entite, maintenant)
 
@@ -408,7 +411,13 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         # gel couvre déjà les trous passagers pour les décisions, la notification
         # suit le même calendrier. Sans ça, la moindre indisponibilité d'une
         # seconde créait une notification persistante.
-        if ko and self.watchdog == MODE_DEGRADE and not self._ko_notified:
+        demarre_depuis = time.time() - self._started_at
+        if (
+            ko
+            and self.watchdog == MODE_DEGRADE
+            and not self._ko_notified
+            and demarre_depuis >= STARTUP_NOTIFY_GRACE_S
+        ):
             self._ko_notified = True
             self.hass.async_create_task(self._async_notify_sensors(ko))
         elif not ko and self._ko_notified:

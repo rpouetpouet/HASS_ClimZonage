@@ -191,6 +191,37 @@ def test_watchdog_mode_gele_puis_degrade():
     assert logic.watchdog_mode(1, None, now, 120) == logic.MODE_GELE
 
 
+def _sonde_muette_depuis_une_heure(c):
+    vieux = time.time() - 3600
+    for eid in list(c._sensor_last_ok):
+        c._sensor_last_ok[eid] = vieux
+    c._ko_since = vieux
+
+
+def test_pas_de_notification_pendant_la_fenetre_de_demarrage():
+    """Cas réel du 04/11 : deux Aqara en `unknown` 10 min après le boot.
+
+    Les décisions passent bien en `degrade` (protection rapide), mais aucune
+    notification ne doit partir avant `STARTUP_NOTIFY_GRACE_S`.
+    """
+    c = _coordinator()
+    asyncio.run(c.async_setup())
+    _sonde_muette_depuis_une_heure(c)
+    c._started_at = time.time()          # on vient de démarrer
+    asyncio.run(c._async_watchdog({}))
+    assert c.watchdog == logic.MODE_DEGRADE, "la protection des décisions doit rester rapide"
+    assert c._ko_notified is False, "aucune notification ne doit partir pendant la fenêtre de démarrage"
+
+
+def test_notification_apres_la_fenetre_de_demarrage():
+    c = _coordinator()
+    asyncio.run(c.async_setup())
+    _sonde_muette_depuis_une_heure(c)
+    c._started_at = time.time() - const.STARTUP_NOTIFY_GRACE_S - 60
+    asyncio.run(c._async_watchdog({}))
+    assert c._ko_notified is True, "après la fenêtre, une sonde réellement muette doit alerter"
+
+
 def test_alerte_seulement_en_mode_degrade():
     """La notification n'est créée qu'après la grâce : on vérifie la condition."""
     c = _coordinator()
