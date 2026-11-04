@@ -64,6 +64,12 @@ DEFAULT_SENSOR_FROZEN_H = 6.0    # h — au-delà, une sonde qui ne bouge plus e
 # valeurs (une Aqara ne parle qu'une fois par heure), donc tout paraît muet.
 # Les décisions, elles, restent protégées par `sensor_timeout_min` + `sensor_grace_s`.
 STARTUP_NOTIFY_GRACE_S = 1800   # s — 30 min
+# Fenêtre pendant laquelle AUCUN clapet n'est commandé après l'initialisation :
+# `RestoreEntity` n'a pas encore rendu les états des zones au premier cycle, donc
+# le coordinateur lit « aucune demande » et ouvrirait la décharge en fermant les
+# pièces. Mesuré le 04/11/2026 : 11 s d'écart entre le premier cycle et le retour
+# de la vraie demande → mauvais état figé 5 min par `min_cycle`.
+STARTUP_DAMPER_GRACE_S = 60     # s — 1 min
 
 # ─── Plages de consigne acceptées par les unités CN105 ──────────────────────
 MIN_TEMP = 16.0

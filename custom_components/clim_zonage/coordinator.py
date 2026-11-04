@@ -86,6 +86,7 @@ from .const import (
     DEFAULT_SENSOR_GRACE_S,
     DEFAULT_SENSOR_TIMEOUT_MIN,
     DEFAULT_STRATEGY,
+    STARTUP_DAMPER_GRACE_S,
     STARTUP_NOTIFY_GRACE_S,
     STRATEGY_GENERATOR,
     STRATEGY_REMOTE,
@@ -213,6 +214,7 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         self.watchdog: str = MODE_NORMAL
         self._ko_notified = False
         self._started_at: float = time.time()
+        self._startup_damper_until: float = 0.0
         self._unsub: list = []
 
     # ─── cycle de vie ───────────────────────────────────────────────────────
@@ -238,6 +240,7 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         # ce qui est la sémantique annoncée par le réglage.
         maintenant = time.time()
         self._started_at = maintenant
+        self._startup_damper_until = maintenant + STARTUP_DAMPER_GRACE_S
         for entite in watched:
             self._sensor_last_ok.setdefault(entite, maintenant)
 
@@ -682,9 +685,17 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         self._force_dampers_next = False
         if freeze:
             _LOGGER.debug("Sonde muette : aucune commande de clapet ce cycle")
+        elif time.time() < self._startup_damper_until:
+            # Les entités de zone n'ont pas fini de restaurer leur état : une
+            # demande lue à False ici ne veut rien dire. On ne touche à aucun
+            # clapet le temps de l'amorçage.
+            _LOGGER.debug(
+                "Amorçage (%.0fs restantes) : aucune commande de clapet",
+                self._startup_damper_until - time.time(),
+            )
         else:
             await self._async_apply_dampers(
-                wanted, force_all=force_all, skip=ko_zones
+                wanted, force_all=force_all, skip=ko_zones, demanding=demanding
             )
 
         # 5. Bouches réellement ouvertes (mesuré, pas commandé) — on compte les
@@ -803,6 +814,7 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         force: bool = False,
         force_all: bool = False,
         skip: set[str] | None = None,
+        demanding: set[str] | None = None,
     ) -> None:
         """Ouvre/ferme les clapets voulus, en respectant la durée de cycle.
 
@@ -810,6 +822,11 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         `force_all` : renvoie l'ordre à **toutes** les zones, même celles dont
         l'état correspond déjà — c'est la recalibration, qui réaffirme la
         position voulue sans pour autant inverser quoi que ce soit.
+        `demanding` : zones réellement en demande. Si elle est non vide, la
+        **fermeture de la zone de décharge** ignore le verrou `min_cycle` : un
+        bypass de débit doit céder tout de suite quand une pièce demande, sinon
+        on chauffe jusqu'à 5 minutes une pièce qui n'a rien demandé (constaté le
+        04/11/2026).
         """
         now = time.monotonic()
         min_cycle = float(self.options.get(CONF_MIN_CYCLE, DEFAULT_MIN_CYCLE))
@@ -835,7 +852,10 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
             if not (force or force_all) and not should_open and not is_open:
                 continue
             last = self._last_toggle.get(zone.uid, 0.0)
-            if not (force or force_all) and now - last < min_cycle:
+            # La décharge cède immédiatement : elle ne sert qu'au débit, donc sa
+            # fermeture n'a aucune raison d'attendre le verrou anti-battement.
+            libere_decharge = bool(demanding) and zone.dump and not should_open
+            if not (force or force_all) and not libere_decharge and now - last < min_cycle:
                 _LOGGER.debug(
                     "Zone %s : cycle trop court (%.0fs < %.0fs), on attend",
                     zone.name,
