@@ -124,6 +124,12 @@ class ZoneClimate(CoordinatorEntity[ZonageCoordinator], ClimateEntity, RestoreEn
                 if zdata.get("mode") == HVAC_HEAT
                 else HVACAction.COOLING
             )
+        if zdata.get("open"):
+            # Clapet ouvert SANS demande : c'est la zone de décharge. Elle brasse du
+            # débit pour la pression statique, elle ne chauffe pas. On l'expose en FAN
+            # pour que la tuile montre une icône de ventilation au lieu d'une horloge
+            # (« idle ») qui laissait croire que rien ne se passait.
+            return HVACAction.FAN
         return HVACAction.IDLE
 
     @property
@@ -136,6 +142,8 @@ class ZoneClimate(CoordinatorEntity[ZonageCoordinator], ClimateEntity, RestoreEn
             "seuil_demarrage": zdata.get("seuil_demarrage"),
             "seuil_arret": zdata.get("seuil_arret"),
             "clapet_ouvert": zdata.get("open"),
+            # vrai quand le clapet est ouvert sans demande : la zone sert de décharge
+            "decharge": bool(zdata.get("open")) and not zdata.get("demand"),
             "cheminee_assure_le_chauffage": self.coordinator.data.fire_takeover
             if self.coordinator.data
             else None,
