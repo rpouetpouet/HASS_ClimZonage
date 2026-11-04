@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import datetime
+
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
@@ -234,7 +236,7 @@ class ProchainCycleSensor(_Base):
             if dernier is None:
                 zones[zone.name] = {"debloque_dans_s": 0, "verrouille": False}
                 continue
-            deblocage = dernier + __import__("datetime").timedelta(seconds=min_cycle_s)
+            deblocage = dernier + datetime.timedelta(seconds=min_cycle_s)
             reste = (deblocage - maintenant).total_seconds() if maintenant else 0
             zones[zone.name] = {
                 "debloque_dans_s": max(0, round(reste)),

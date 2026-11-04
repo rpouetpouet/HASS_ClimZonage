@@ -28,6 +28,7 @@ from homeassistant.const import (
     SERVICE_CLOSE_COVER,
     SERVICE_OPEN_COVER,
     STATE_CLOSED,
+    STATE_CLOSING,
     STATE_OPEN,
     STATE_OPENING,
 )
@@ -41,7 +42,6 @@ from .const import (
     CONF_SENSOR_FROZEN_H,
     CONF_SENSOR_GRACE_S,
     CONF_SENSOR_TIMEOUT_MIN,
-    CONF_DAMPER_COURSE,
     CONF_DEADBAND,
     CONF_ENGINE,
     CONF_FALLBACK_COOL,
@@ -73,9 +73,9 @@ from .const import (
     DEFAULT_SENSOR_FROZEN_H,
     DEFAULT_SENSOR_GRACE_S,
     DEFAULT_SENSOR_TIMEOUT_MIN,
+    STRATEGY_GENERATOR,
     STRATEGY_REMOTE,
     TEMP_STEP,
-    TICK_SECONDS,
 )
 from .logic import (
     apply_min_vents,
@@ -86,8 +86,6 @@ from .logic import (
     fire_detected,
     fire_takes_over,
     generator_setpoint,
-    house_setpoint,
-    MODE_DEGRADE,
     MODE_GELE,
     MODE_NORMAL,
     watchdog_mode,
@@ -453,8 +451,6 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
     # ─── la boucle ──────────────────────────────────────────────────────────
     async def _async_update_data(self) -> ZonageState:
         opts = self.options
-        engine_state = self.hass.states.get(self.engine)
-        engine_mode = engine_state.state if engine_state else None
 
         # 0. Chien de garde : une sonde muette gèle ou dégrade la décision.
         watchdog, ko_zones = await self._async_watchdog(opts)
@@ -778,7 +774,7 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
                 continue
             should_open = zone.uid in wanted
             is_open = any(s.state in (STATE_OPEN, STATE_OPENING) for s in known)
-            is_closed = all(s.state in (STATE_CLOSED, "closing") for s in known)
+            is_closed = all(s.state in (STATE_CLOSED, STATE_CLOSING) for s in known)
             if not force_all and should_open == is_open:
                 continue
             if should_open and not is_closed and not (force or force_all):
@@ -897,10 +893,7 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         await self.async_request_refresh()
 
     async def async_set_zone_mode(self, uid: str, mode: str) -> None:
-        if mode in (HVAC_OFF,):
-            self.zone_modes[uid] = HVAC_OFF
-        else:
-            self.zone_modes[uid] = mode
+        self.zone_modes[uid] = mode
         await self.async_request_refresh()
 
     def allowed_zone_modes(self) -> list[str]:

@@ -2,7 +2,7 @@
 
 DOMAIN = "clim_zonage"
 NAME = "Clim Zonage"
-VERSION = "0.1.0"
+VERSION = "0.12.4"      # doit suivre manifest.json (source de vérité pour HACS)
 
 # ─── Clés de configuration (data de l'entrée) ────────────────────────────────
 CONF_ENGINE = "engine_entity"          # climate.* du gainable (moteur)
@@ -65,7 +65,6 @@ MIN_TEMP = 16.0
 MAX_TEMP = 31.0
 TEMP_STEP = 0.5
 
-TICK_SECONDS = 30              # période du coordinateur
 
 HVAC_HEAT = "heat"
 HVAC_COOL = "cool"
