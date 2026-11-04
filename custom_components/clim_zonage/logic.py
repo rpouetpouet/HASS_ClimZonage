@@ -283,7 +283,6 @@ def dump_is_available(
 
 
 def apply_min_vents(
-    zones_openable: Iterable[str],
     demanding_zones: Iterable[str],
     dump_zone: str | None,
     min_vents: int,

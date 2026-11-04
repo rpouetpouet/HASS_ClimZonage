@@ -208,17 +208,31 @@ Les clapets des pièces en demande sont ouverts, les autres fermés. Deux garde-
 - **Minimum de bouches (`min_vents`, réglé à 1)** : le seuil se compte en **clapets physiques** — la
   salle à manger en a deux, elle pèse donc deux bouches, et le total du réseau est de **7**. Si les
   pièces en demande n'ouvrent pas assez de volets, la **zone de décharge** (la salle à manger) est
-  ouverte en plus pour ne pas étrangler le réseau de gaines. Elle est laissée fermée si elle est déjà
-  au-dessus de sa consigne, ou si le feu est en prise en charge.
+  ouverte en plus pour ne pas étrangler le réseau de gaines.
+
+**Quand la décharge s'ouvre exactement** (règle de Rich, 04/11/2026) :
+
+- **plus aucune pièce ne demande** → elle s'ouvre **toujours**, même si sa propre consigne est
+  atteinte et même si la cheminée chauffe la pièce. Ce n'est plus du confort mais du **débit** :
+  l'unité est à sa consigne de repli, donc aucun air chaud n'est envoyé dans une pièce qui n'en veut
+  pas. C'est un clapet ouvert pour la pression statique, pas un appel de chauffage ;
+- **une autre pièce demande** → les deux inhibitions reprennent : on ne l'ouvre pas si elle est déjà
+  au-dessus de sa consigne (inutile d'y envoyer de l'air) ni si le feu est en prise en charge sur
+  cette pièce (le feu s'en occupe déjà).
+
+Pour distinguer les deux situations sur le tableau de bord, une zone dont le clapet est ouvert
+**sans** demande expose `hvac_action: fan` (icône de ventilation) et l'attribut `decharge: true` ;
+une zone qui chauffe vraiment expose `hvac_action: heating` (flamme orange). Le capteur
+`sensor.zone_de_decharge_utilisee` résume l'état courant.
 
 ⚠️ **À quoi sert vraiment ce minimum.** Le gainable **n'adapte pas son débit au nombre de bouches
 ouvertes** : il régule sur la température (reprise contre consigne) et son ventilateur n'a que
 quelques vitesses fixes — en `auto` il suit la charge thermique, pas la perte de charge des gaines.
 L'adaptation du débit vient donc de **nous**, par la vitesse de ventilation (1-2 bouches → `low`,
 3-4 → `medium`, 5-7 → `high`). Le minimum de bouches n'est qu'un **filet de sécurité acoustique** :
-il évite le cas extrême d'une seule bouche à vitesse minimale, où la vitesse d'air dans le gaine et
+il évite le cas extrême d'une seule bouche à vitesse minimale, où la vitesse d'air dans la gaine et
 le souffle au diffuseur deviennent audibles. Son coût est réel (il peut chauffer une pièce qui n'a
-rien demandé) : si aucune sifflement n'est constaté avec une seule bouche ouverte, le passer à **1**
+rien demandé) : si aucun sifflement n'est constaté avec une seule bouche ouverte, le passer à **1**
 rend le système purement piloté par la demande.
 
 ### Étape 5 — le gainable
@@ -335,7 +349,7 @@ Trois vues, accessibles depuis la barre latérale (`/chauffage-clim`) :
 | Réglage | Valeur | Quand y toucher |
 |---|---|---|
 | `strategy` | `remote` | seulement pour revenir en `generator` (dépannage firmware) |
-| `deadband` | 0.7 °C | **largeur de l'hystérésis** : écart entre le seuil de démarrage et l'arrêt (à la consigne). Augmenter si les clapets battent, diminuer pour une régulation plus serrée |
+| `deadband` | 0.7 °C | **hystérésis**, en ± autour de la consigne : la zone démarre à `consigne − 0.7` et ne s'arrête qu'à `consigne + 0.7`, soit une bande totale de 1,4 °C. Augmenter si les clapets battent, diminuer pour une régulation plus serrée (0.35 → bande de 0,7 °C) |
 | `min_cycle` | 1200 s (20 min) | ne pas descendre sous la course d'un clapet (67 s) ; c'est un verrou par zone, pas un temps de réaction |
 | `min_vents` | 1 | bouches ouvertes minimum (pression statique), comptées en **clapets physiques** (7 au total) : en dessous, la zone de décharge est ouverte pour ne pas étrangler le réseau |
 | `margin` | 2.0 °C | **sans effet en `remote`** ; sert en `generator` |

@@ -49,7 +49,7 @@
         "title": "Réglages globaux",
         "data": {
           "strategy": "Stratégie moteur",
-          "deadband": "Bande morte (°C)",
+          "deadband": "Hystérésis (± °C)",
           "min_cycle": "Durée de cycle minimum (s)",
           "min_vents": "Bouches ouvertes minimum",
           "margin": "Marge de la consigne génératrice (°C)",

@@ -61,7 +61,6 @@ def test_froid_miroir():
 # ─── apply_min_vents ────────────────────────────────────────────────────────
 def test_min_vents_1_sans_demande_ouvre_la_decharge():
     wanted = apply_min_vents(
-        zones_openable=["alice", "noemie", "sam"],
         demanding_zones=[],
         dump_zone="sam",
         min_vents=1,
@@ -73,7 +72,6 @@ def test_min_vents_1_sans_demande_ouvre_la_decharge():
 
 def test_min_vents_1_avec_une_demande_pas_de_decharge():
     wanted = apply_min_vents(
-        zones_openable=["alice", "sam"],
         demanding_zones=["alice"],
         dump_zone="sam",
         min_vents=1,
@@ -85,7 +83,6 @@ def test_min_vents_1_avec_une_demande_pas_de_decharge():
 
 def test_min_vents_2_avec_une_demande_ajoute_la_decharge():
     wanted = apply_min_vents(
-        zones_openable=["alice", "sam"],
         demanding_zones=["alice"],
         dump_zone="sam",
         min_vents=2,
@@ -97,7 +94,6 @@ def test_min_vents_2_avec_une_demande_ajoute_la_decharge():
 
 def test_decharge_indisponible_assume_le_debit_reduit():
     wanted = apply_min_vents(
-        zones_openable=["alice", "sam"],
         demanding_zones=[],
         dump_zone="sam",
         min_vents=1,
@@ -110,7 +106,6 @@ def test_decharge_indisponible_assume_le_debit_reduit():
 def test_chainage_idle_vers_ouverture_de_la_decharge():
     dispo = dump_is_available(HEAT, 21.1, 21.0, True, True, idle=True)
     wanted = apply_min_vents(
-        zones_openable=["alice", "sam"],
         demanding_zones=[],
         dump_zone="sam",
         min_vents=1,

@@ -70,9 +70,22 @@ from .const import (
     HVAC_OFF,
     MAX_TEMP,
     MIN_TEMP,
+    DEFAULT_CYCLE_SECONDS,
+    DEFAULT_DEADBAND,
+    DEFAULT_FALLBACK_COOL,
+    DEFAULT_FALLBACK_HEAT,
+    DEFAULT_FAN_THRESHOLDS,
+    DEFAULT_FIRE_DELTA_OFF,
+    DEFAULT_FIRE_DELTA_ON,
+    DEFAULT_FIRE_TEMP_MIN,
+    DEFAULT_FIRE_TEMP_OFF,
+    DEFAULT_MARGIN,
+    DEFAULT_MIN_CYCLE,
+    DEFAULT_MIN_VENTS,
     DEFAULT_SENSOR_FROZEN_H,
     DEFAULT_SENSOR_GRACE_S,
     DEFAULT_SENSOR_TIMEOUT_MIN,
+    DEFAULT_STRATEGY,
     STRATEGY_GENERATOR,
     STRATEGY_REMOTE,
     TEMP_STEP,
@@ -148,7 +161,7 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
     """Boucle de décision du zonage."""
 
     def __init__(self, hass: HomeAssistant, entry, zones: list[Zone], options: dict):
-        cycle = int(options.get(CONF_CYCLE_SECONDS, 30))
+        cycle = int(options.get(CONF_CYCLE_SECONDS, DEFAULT_CYCLE_SECONDS))
         self.cycle_seconds = cycle
         self.next_cycle: datetime | None = None
         self.last_cycle: datetime | None = None
@@ -206,8 +219,12 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         if self.fireplace_sensor:
             watched.add(self.fireplace_sensor)
         for zone in self.zones:
+            # On ne surveille PAS les clapets : l'intégration les commande
+            # elle-même, donc chaque ordre produirait deux événements (opening
+            # puis open) et donc deux cycles de décision supplémentaires. Le tour
+            # de boucle (`cycle_seconds`) suffit largement à repérer un mouvement
+            # fait à la main (télécommande murale, test).
             watched.add(zone.temp_sensor)
-            watched.update(zone.dampers)
         self._unsub.append(
             async_track_state_change_event(
                 self.hass, list(watched), self._handle_state_change
@@ -534,22 +551,22 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
             chimney_temp,
             room_temp,
             self._fire,
-            float(opts.get(CONF_FIRE_DELTA_ON)),
-            float(opts.get(CONF_FIRE_DELTA_OFF)),
+            float(opts.get(CONF_FIRE_DELTA_ON, DEFAULT_FIRE_DELTA_ON)),
+            float(opts.get(CONF_FIRE_DELTA_OFF, DEFAULT_FIRE_DELTA_OFF)),
         )
         self._fire_takeover = fire_takes_over(
             self._fire,
             room_temp,
             self._fire_takeover,
-            float(opts.get(CONF_FIRE_TEMP_MIN)),
-            float(opts.get(CONF_FIRE_TEMP_OFF)),
+            float(opts.get(CONF_FIRE_TEMP_MIN, DEFAULT_FIRE_TEMP_MIN)),
+            float(opts.get(CONF_FIRE_TEMP_OFF, DEFAULT_FIRE_TEMP_OFF)),
         )
         if self.fire_force:
             self._fire = True
             self._fire_takeover = True
 
         # 3. Demande par zone
-        deadband = float(opts.get(CONF_DEADBAND))
+        deadband = float(opts.get(CONF_DEADBAND, DEFAULT_DEADBAND))
         samples: list[tuple[float | None, float | None, bool]] = []
         zdata: dict[str, dict[str, Any]] = {}
         demanding: set[str] = set()
@@ -614,10 +631,9 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
                 idle=not demanding,
             )
         wanted = apply_min_vents(
-            {z.uid for z in self.zones},
             demanding,
             dump_zone.uid if dump_zone else None,
-            int(opts.get(CONF_MIN_VENTS)),
+            int(opts.get(CONF_MIN_VENTS, DEFAULT_MIN_VENTS)),
             dump_available,
             open_vents_in=[
                 damper
@@ -665,13 +681,17 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         # 6. Moteur : mode, consigne, vitesse
         setpoint: float | None = None
         virtual: float | None = virtual_temperature(samples, mode)
-        strategy = opts.get(CONF_STRATEGY)
+        strategy = opts.get(CONF_STRATEGY, DEFAULT_STRATEGY)
         effective = strategy
 
         if mode == HVAC_FAN_ONLY:
             setpoint = None
             await self._async_engine_fan_only()
-            await self._async_set_fan(choose_fan(open_vents, opts.get(CONF_FAN_THRESHOLDS)))
+            await self._async_set_fan(
+                choose_fan(
+                    open_vents, opts.get(CONF_FAN_THRESHOLDS, DEFAULT_FAN_THRESHOLDS)
+                )
+            )
         elif demanding:
             # Stratégie déportée : le capteur peut disparaître (ESP hors ligne,
             # entité unavailable). Sans valeur déportée l'unité retomberait en
@@ -686,7 +706,7 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
                 setpoint = remote_setpoint(
                     samples,
                     mode,
-                    float(opts.get(CONF_MARGIN)),
+                    float(opts.get(CONF_MARGIN, DEFAULT_MARGIN)),
                     MIN_TEMP,
                     MAX_TEMP,
                     TEMP_STEP,
@@ -698,18 +718,25 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
                 setpoint = generator_setpoint(
                     float(reference) if reference is not None else None,
                     mode,
-                    float(opts.get(CONF_MARGIN)),
+                    float(opts.get(CONF_MARGIN, DEFAULT_MARGIN)),
                     MIN_TEMP,
                     MAX_TEMP,
                     TEMP_STEP,
                 )
             await self._async_set_engine(mode, setpoint)
-            await self._async_set_fan(choose_fan(open_vents, opts.get(CONF_FAN_THRESHOLDS)))
+            await self._async_set_fan(
+                choose_fan(
+                    open_vents, opts.get(CONF_FAN_THRESHOLDS, DEFAULT_FAN_THRESHOLDS)
+                )
+            )
         else:
             # Aucune demande : on ne coupe pas — repli + ventilation auto.
             fallback = float(
                 opts.get(
-                    CONF_FALLBACK_HEAT if mode == HVAC_HEAT else CONF_FALLBACK_COOL
+                    CONF_FALLBACK_HEAT if mode == HVAC_HEAT else CONF_FALLBACK_COOL,
+                    DEFAULT_FALLBACK_HEAT
+                    if mode == HVAC_HEAT
+                    else DEFAULT_FALLBACK_COOL,
                 )
             )
             setpoint = snap(clamp(fallback, MIN_TEMP, MAX_TEMP), TEMP_STEP)
@@ -733,7 +760,7 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         )
         # Prochaine échéance à laquelle un clapet POURRA bouger : c'est le premier
         # verrou `min_cycle` qui expire, sinon le prochain tour de boucle.
-        min_cycle_s = float(opts.get(CONF_MIN_CYCLE))
+        min_cycle_s = float(opts.get(CONF_MIN_CYCLE, DEFAULT_MIN_CYCLE))
         verrous = [
             self._last_toggle_wall[z.uid] + datetime.timedelta(seconds=min_cycle_s)
             for z in self.zones
@@ -759,7 +786,7 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         position voulue sans pour autant inverser quoi que ce soit.
         """
         now = time.monotonic()
-        min_cycle = float(self.options.get(CONF_MIN_CYCLE))
+        min_cycle = float(self.options.get(CONF_MIN_CYCLE, DEFAULT_MIN_CYCLE))
         skip = skip or set()
         for zone in self.zones:
             if zone.uid in skip:

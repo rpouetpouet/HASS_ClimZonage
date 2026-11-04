@@ -100,7 +100,12 @@ class ChemineeTakeoverBinarySensor(_Base):
 
 
 class SondesOperationnellesBinarySensor(_Base):
-    """Toutes les sondes essentielles répondent-elles ?
+    """Une sonde essentielle est-elle en défaut ?
+
+    ⚠️ `device_class: problem` : `on` signifie « problème détecté », donc l'état
+    est VRAI quand une sonde manque ou est figée. Le nom de l'entité disait
+    l'inverse (« Sondes opérationnelles ») alors que `is_on` renvoyait déjà
+    l'information de défaut.
 
     Essentielles = la sonde de chaque zone + la sonde de panache de la cheminée.
     Une sonde est déclarée indisponible quand elle n'a plus donné de mesure
@@ -108,7 +113,7 @@ class SondesOperationnellesBinarySensor(_Base):
     décisions, et il est utilisable dans une automatisation de notification.
     """
 
-    _attr_name = "Sondes opérationnelles"
+    _attr_name = "Sondes en défaut"
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
 
     def __init__(self, coordinator, entry):
