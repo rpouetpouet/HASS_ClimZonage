@@ -368,7 +368,10 @@ class ClimZonageOptionsFlow(OptionsFlow):
         zones = self._zones()
         if not zones:
             return self.async_abort(reason="no_zone")
-        if user_input is not None:
+
+        # 3e etape : le formulaire complet a ete soumis -> on applique.
+        # On teste la presence du nom, car l'etape de selection ne renvoie que l'uid.
+        if user_input is not None and CONF_ZONE_NAME in user_input:
             uid = user_input[CONF_ZONE_UID]
             if uid == "__new__":
                 return await self.async_step_add_zone()
@@ -389,6 +392,34 @@ class ClimZonageOptionsFlow(OptionsFlow):
             data[CONF_ZONES] = zones
             return self.async_create_entry(title="", data=data)
 
+        # 2e etape : une zone a ete choisie -> on affiche ses reglages, pre-remplis.
+        if user_input is not None:
+            uid = user_input[CONF_ZONE_UID]
+            if uid == "__new__":
+                return await self.async_step_add_zone()
+            zone = next((z for z in zones if z[CONF_ZONE_UID] == uid), None)
+            if zone is None:
+                return self.async_abort(reason="no_zone")
+            return self.async_show_form(
+                step_id="edit_zone",
+                data_schema=_zone_schema(zone).extend(
+                    {
+                        vol.Required(CONF_ZONE_UID, default=uid): selector.SelectSelector(
+                            selector.SelectSelectorConfig(
+                                options=[
+                                    {
+                                        "value": uid,
+                                        "label": zone[CONF_ZONE_NAME],
+                                    }
+                                ],
+                                mode=selector.SelectSelectorMode.LIST,
+                            )
+                        )
+                    }
+                ),
+            )
+
+        # 1re etape : choix de la zone a modifier.
         return self.async_show_form(
             step_id="edit_zone",
             data_schema=vol.Schema(
