@@ -2,7 +2,7 @@
 
 DOMAIN = "clim_zonage"
 NAME = "Clim Zonage"
-VERSION = "0.12.4"      # doit suivre manifest.json (source de vérité pour HACS)
+VERSION = "0.12.5"      # doit suivre manifest.json (source de vérité pour HACS)
 
 # ─── Clés de configuration (data de l'entrée) ────────────────────────────────
 CONF_ENGINE = "engine_entity"          # climate.* du gainable (moteur)
