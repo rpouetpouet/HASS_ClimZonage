@@ -9,7 +9,7 @@ Règles non négociables encodées ici :
     aucune zone ne demande, on passe en consigne de repli + ventilation auto,
     ce qui laisse le thermostat interne faire son travail sans jamais créer
     l'état « off » dont on ne sait pas ressortir ;
-  * seul le master switch (OFF) éteint l'unité ;
+  * seul le mode **Arrêt** du sélecteur de système éteint l'unité ;
   * les consignes de zone ne pilotent JAMAIS directement la consigne du moteur
     par un min()/max() : la sonde de reprise est dans une pièce qui peut être
     chaude pour une autre raison (cheminée) et affamerait les autres pièces.
@@ -42,6 +42,7 @@ from .const import (
     CONF_SENSOR_FROZEN_H,
     CONF_SENSOR_GRACE_S,
     CONF_SENSOR_TIMEOUT_MIN,
+    CONF_DAMPER_COURSE,
     CONF_DEADBAND,
     CONF_ENGINE,
     CONF_FALLBACK_COOL,
@@ -72,6 +73,7 @@ from .const import (
     MAX_TEMP,
     MIN_TEMP,
     DEFAULT_CYCLE_SECONDS,
+    DEFAULT_DAMPER_COURSE,
     DEFAULT_DEADBAND,
     DEFAULT_FALLBACK_COOL,
     DEFAULT_FALLBACK_HEAT,
@@ -113,6 +115,7 @@ from .logic import (
     MODE_GELE,
     MODE_NORMAL,
     pick_source_option,
+    skip_damper_zones,
     watchdog_mode,
     remote_setpoint,
     snap,
@@ -217,6 +220,7 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         self._source_last_try = 0.0  # dernier essai d'écriture du réglage 102
         self._source_write_at = 0.0  # horodatage de la dernière écriture réussie
         self._source_last_write = 0.0  # anti-doublon immédiat entre deux cycles
+        self._can_write = False  # droit d'écrire ce cycle (gel / amorçage)
         # Vrai quand un changement de mode demande d'affirmer le réglage 102 :
         # c'est ce drapeau, et non l'état du select, qui décide d'écrire.
         self._source_needs_assert = True
@@ -284,6 +288,12 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         for unsub in self._unsub:
             unsub()
         self._unsub.clear()
+        # Le minuteur du « pic à 0 » vit dans la boucle : sans cette révocation,
+        # un rechargement d'entrée pendant les 20 s du pulse laisse un timer qui
+        # se déclenche après coup et rafraîchit un coordinateur démonté.
+        if self._zero_cancel is not None:
+            self._zero_cancel()
+            self._zero_cancel = None
 
     # ─── lecture des entités ────────────────────────────────────────────────
     def is_zone_active(self, uid: str) -> bool:
@@ -535,6 +545,15 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         # 0. Chien de garde : une sonde muette gèle ou dégrade la décision.
         watchdog, ko_zones = await self._async_watchdog(opts)
         freeze = watchdog == MODE_GELE
+        # Droit d'écrire ce cycle. Deux fenêtres où l'on ne doit RIEN commander :
+        #   * gel du chien de garde (données partielles) ;
+        #   * amorçage après démarrage/rechargement — les entités de zone et le
+        #     sélecteur de mode n'ont pas encore restauré leur état, donc le
+        #     coordinateur croit être en AUTO/heat alors qu'il était peut-être en
+        #     Arrêt : sans cette garde, un redémarrage rallumait le gainable
+        #     quelques secondes. Le contrat « gele = aucune écriture » est enfin
+        #     tenu, y compris pour la consigne, la vitesse et la source 102.
+        self._can_write = not freeze and time.time() >= self._startup_damper_until
 
         # 2. AUTO : l'unité doit écouter la température déportée (réglage 102).
         #    Contrôlé à chaque cycle, écrit seulement en cas d'écart — c'est ce
@@ -667,7 +686,14 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         # l'entraîne pas. C'est le moyen le moins intrusif de réaligner le réel
         # sur la croyance de l'intégration.
         force_all = self._force_dampers_next
-        self._force_dampers_next = False
+        # Zones dont on ne touche PAS le clapet : sondes KO **ou** lecture
+        # incomplète. Le chien de garde n'intervient qu'après `sensor_timeout_min`
+        # (90 min ici) ; sans la seconde condition, une entité momentanément
+        # `unavailable` fait sortir la zone de « en demande » et son clapet est
+        # FERMÉ au premier tick, puis verrouillé par `min_cycle`.
+        skip_zones = skip_damper_zones(
+            ko_zones, {z.uid: self._zone_temp(z) for z in self.zones}
+        )
         if freeze:
             _LOGGER.debug("Sonde muette : aucune commande de clapet ce cycle")
         elif time.time() < self._startup_damper_until:
@@ -679,8 +705,13 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
                 self._startup_damper_until - time.time(),
             )
         else:
+            # Le drapeau de recalibration n'est consommé QUE si l'ordre part
+            # réellement : sinon une recalibration demandée pendant un gel ou
+            # l'amorçage serait perdue en silence.
+            if force_all:
+                self._force_dampers_next = False
             await self._async_apply_dampers(
-                wanted, force_all=force_all, skip=ko_zones, demanding=demanding
+                wanted, force_all=force_all, skip=skip_zones, demanding=demanding
             )
 
         # 5. Bouches réellement ouvertes (mesuré, pas commandé) — on compte les
@@ -782,7 +813,7 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         )
         # Prochaine échéance à laquelle un clapet POURRA bouger : c'est le premier
         # verrou `min_cycle` qui expire, sinon le prochain tour de boucle.
-        min_cycle_s = float(opts.get(CONF_MIN_CYCLE, DEFAULT_MIN_CYCLE))
+        min_cycle_s = self.min_cycle_seconds()
         verrous = [
             self._last_toggle_wall[z.uid] + datetime.timedelta(seconds=min_cycle_s)
             for z in self.zones
@@ -907,6 +938,11 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         système est arrêté, l'unité doit réguler sur SON thermostat, pas sur une
         température déportée que plus personne ne met à jour.
         """
+        # En Arrêt il n'y a pas de chien de garde (aucune décision), mais la
+        # fenêtre d'amorçage reste : le mode réel n'est restauré qu'après le
+        # premier cycle, et écrire le 102 maintenant ferait un aller-retour
+        # inutile sur le bus CN105.
+        self._can_write = time.time() >= self._startup_damper_until
         await self._async_engine_off()
         await self._async_apply_temp_source(panel=True)
         await self._async_pulse_zero()
@@ -941,6 +977,7 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         l'arrêt) ; ensuite on ne les touche plus, pour la même raison qu'en
         ARRÊT : une manœuvre manuelle doit tenir.
         """
+        self._can_write = time.time() >= self._startup_damper_until
         await self._async_apply_temp_source(panel=True)
         await self._async_pulse_zero()
         await self._async_power_resync()
@@ -974,12 +1011,9 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         d'être réécrite à chaque cycle. Entité non configurée ⇒ on ne touche à
         rien et on le dit une fois.
         """
-        # Au démarrage, le mode réel n'est pas encore connu : c'est l'entité
-        # `select` qui le restaure, après le premier cycle du coordinateur. On
-        # attend donc la fin de la fenêtre d'amorçage, sinon un redémarrage
-        # survenu en mode manuel ferait l'aller-retour Externe → Filaire sur un
-        # bus CN105 déjà occupé à se réinitialiser.
-        if time.time() < getattr(self, "_startup_damper_until", 0.0):
+        # Gel du chien de garde ou fenêtre d'amorçage : aucune écriture de
+        # function setting (chaque écriture peut éteindre le gainable).
+        if not self._can_write:
             return
         entity = self.options.get(CONF_TEMP_SOURCE_SELECT) or self.entry.data.get(
             CONF_TEMP_SOURCE_SELECT
@@ -1027,6 +1061,19 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
             self.system_mode,
         )
 
+    def min_cycle_seconds(self) -> float:
+        """Verrou anti-battement effectif d'un clapet.
+
+        `damper_course` était une option **morte** : proposée dans l'écran de
+        réglages, jamais lue par le coordinateur. Sa raison d'être est de garantir
+        que le verrou dépasse la course réelle d'un clapet (sinon on peut renvoyer
+        un ordre à mi-course) : on l'utilise donc comme **plancher** de
+        `min_cycle`, ce qui rend le réglage utile au lieu de le supprimer.
+        """
+        cours = float(self.options.get(CONF_DAMPER_COURSE, DEFAULT_DAMPER_COURSE))
+        verrou = float(self.options.get(CONF_MIN_CYCLE, DEFAULT_MIN_CYCLE))
+        return max(verrou, cours)
+
     # ─── écritures ──────────────────────────────────────────────────────────
     async def _async_apply_dampers(
         self,
@@ -1049,7 +1096,7 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         04/11/2026).
         """
         now = time.monotonic()
-        min_cycle = float(self.options.get(CONF_MIN_CYCLE, DEFAULT_MIN_CYCLE))
+        min_cycle = self.min_cycle_seconds()
         skip = skip or set()
         for zone in self.zones:
             if zone.uid in skip:
@@ -1096,6 +1143,9 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
 
     async def _async_set_engine(self, mode: str, setpoint: float | None) -> None:
         """Consigne AVANT mode (piège : sinon décision prise sur l'ancienne consigne)."""
+        if not self._can_write:
+            _LOGGER.debug("Écriture moteur retenue (gel ou amorçage)")
+            return
         state = self.hass.states.get(self.engine)
         if state is None:
             return
@@ -1115,6 +1165,8 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
             )
 
     async def _async_set_fan(self, fan: str) -> None:
+        if not self._can_write:
+            return
         state = self.hass.states.get(self.engine)
         if state is None or state.attributes.get("fan_mode") == fan:
             return
@@ -1130,6 +1182,8 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         )
 
     async def _async_engine_fan_only(self) -> None:
+        if not self._can_write:
+            return
         state = self.hass.states.get(self.engine)
         if state is not None and state.state != HVAC_FAN_ONLY:
             await self.hass.services.async_call(
@@ -1176,7 +1230,11 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         if system_mode not in SYSTEM_MODES:
             return
         if system_mode == SYSTEM_AUTO and self.system_mode != SYSTEM_AUTO:
+            # Les deux horloges du verrou : monotonic pour la décision, murale
+            # pour l'échéance affichée. N'en vider qu'une laissait une échéance
+            # de clapet fantôme dans le capteur « prochain cycle ».
             self._last_toggle.clear()
+            self._last_toggle_wall.clear()
         previous = self.system_mode
         self.system_mode = system_mode
         self._off_closed = False
@@ -1203,6 +1261,9 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
 
     async def async_set_global_mode(self, mode: str) -> None:
         """Changer le mode global aligne les zones (garde-fou « mode interdit »)."""
+        if mode not in (HVAC_HEAT, HVAC_COOL, HVAC_FAN_ONLY):
+            _LOGGER.warning("Mode global ignoré : %s n'est pas un mode supporté", mode)
+            return
         self.mode = mode
         if mode in (HVAC_HEAT, HVAC_COOL):
             for uid, zmode in list(self.zone_modes.items()):
@@ -1211,10 +1272,19 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         await self.async_refresh()
 
     async def async_set_zone_target(self, uid: str, target: float) -> None:
+        if uid not in {z.uid for z in self.zones}:
+            _LOGGER.warning("Consigne ignorée : zone inconnue %s", uid)
+            return
         self.zone_targets[uid] = snap(clamp(target, MIN_TEMP, MAX_TEMP), TEMP_STEP)
         await self.async_request_refresh()
 
     async def async_set_zone_mode(self, uid: str, mode: str) -> None:
+        if uid not in {z.uid for z in self.zones}:
+            _LOGGER.warning("Mode de zone ignoré : zone inconnue %s", uid)
+            return
+        if mode not in (HVAC_OFF, HVAC_HEAT, HVAC_COOL, HVAC_FAN_ONLY):
+            _LOGGER.warning("Mode de zone ignoré : %s n'est pas un mode supporté", mode)
+            return
         self.zone_modes[uid] = mode
         await self.async_request_refresh()
 

@@ -185,7 +185,9 @@ class StrategySensor(_Base):
             # un repli, donc on n'allume pas l'indicateur.
             "repli_actif": data.strategy in (STRATEGY_GENERATOR, STRATEGY_REMOTE)
             and demande != data.strategy,
-            "temperature_deportee_disponible": data.virtual_temp is not None,
+            # 0 n'est pas une température : c'est le signal « pas de température
+            # externe » envoyé au pont. On ne le compte donc pas comme disponible.
+            "temperature_deportee_disponible": data.virtual_temp not in (None, 0.0),
             "consigne_envoyee": data.engine_setpoint,
         }
 

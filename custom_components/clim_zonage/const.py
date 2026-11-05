@@ -2,7 +2,7 @@
 
 DOMAIN = "clim_zonage"
 NAME = "Clim Zonage"
-VERSION = "0.13.2"      # doit suivre manifest.json (source de vérité pour HACS)
+VERSION = "0.13.3"      # doit suivre manifest.json (source de vérité pour HACS)
 
 # ─── Mode du système : sélecteur à trois positions ──────────────────────────
 # `AUTO`   : le zonage régule (comportement historique du master switch ON).

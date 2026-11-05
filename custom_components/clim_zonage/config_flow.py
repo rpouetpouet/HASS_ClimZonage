@@ -63,6 +63,7 @@ from .const import (
     NAME,
     STRATEGIES,
 )
+from .logic import merge_options
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -373,7 +374,7 @@ class ClimZonageOptionsFlow(OptionsFlow):
         if user_input is not None:
             zone = dict(user_input)
             zone[CONF_ZONE_UID] = slugify(zone[CONF_ZONE_NAME]) or uuid.uuid4().hex[:8]
-            data = {**self.entry.options, **self.entry.data}
+            data = merge_options(self.entry.data, self.entry.options)
             data.pop(CONF_ZONES, None)
             data[CONF_ZONES] = self._zones() + [zone]
             return self.async_create_entry(title="", data=data)
@@ -402,7 +403,7 @@ class ClimZonageOptionsFlow(OptionsFlow):
                     ):
                         zone[key] = user_input[key]
                     break
-            data = {**self.entry.options, **self.entry.data}
+            data = merge_options(self.entry.data, self.entry.options)
             data.pop(CONF_ZONES, None)
             data[CONF_ZONES] = zones
             return self.async_create_entry(title="", data=data)
@@ -460,7 +461,7 @@ class ClimZonageOptionsFlow(OptionsFlow):
             return self.async_abort(reason="no_zone")
         if user_input is not None:
             uid = user_input[CONF_ZONE_UID]
-            data = {**self.entry.options, **self.entry.data}
+            data = merge_options(self.entry.data, self.entry.options)
             data.pop(CONF_ZONES, None)
             data[CONF_ZONES] = [z for z in zones if z[CONF_ZONE_UID] != uid]
             return self.async_create_entry(title="", data=data)

@@ -25,6 +25,40 @@ def apply_offset(value: float | None, offset: float) -> float | None:
     return round(value + offset, 2)
 
 
+def merge_options(data: dict, options: dict) -> dict:
+    """Fusionne `entry.data` et `entry.options` : **les options gagnent toujours**.
+
+    `entry.data` est figé à la création de l'entrée et contient les valeurs par
+    défaut d'alors ; `entry.options` porte ce que l'utilisateur a réglé depuis.
+    Toute fusion écrite dans l'autre sens (`{**options, **data}`) fait donc
+    silencieusement revenir les réglages à leur valeur d'origine — vécu : un
+    deadband réglé à 0,3 revenait à 0,7 dès qu'une zone était modifiée.
+
+    Fonction pure et testée parce que cette erreur est invisible : elle ne casse
+    rien, elle annule des réglages.
+    """
+    return {**data, **(options or {})}
+
+
+def skip_damper_zones(ko_zones: Iterable[str], zone_temps: dict) -> set[str]:
+    """Zones dont le clapet ne doit **pas** être commandé ce cycle.
+
+    Deux raisons, et la seconde est celle qui coûte cher :
+      * la sonde est déclarée KO par le chien de garde ;
+      * la lecture est simplement **incomplète** (`None`) — l'entité est
+        `unavailable` depuis 30 s, ou l'intégration vient de recharger et n'a pas
+        encore restauré l'état. Le chien de garde n'intervient qu'après
+        `sensor_timeout_min` (90 min chez Rich) : sans cette seconde condition, la
+        zone sort de « en demande » et son clapet est **fermé** au premier tick,
+        puis verrouillé par `min_cycle`.
+    """
+    skip = {uid for uid in ko_zones}
+    for uid, temp in zone_temps.items():
+        if temp is None:
+            skip.add(uid)
+    return skip
+
+
 def clamp(value: float, low: float, high: float) -> float:
     """Borne une valeur."""
     return max(low, min(high, value))

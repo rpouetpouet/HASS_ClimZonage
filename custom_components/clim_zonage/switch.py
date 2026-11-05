@@ -9,6 +9,7 @@ la main, vannes ouvertes » et « tout est arrêté ».
 from __future__ import annotations
 
 from homeassistant.components.switch import SwitchEntity
+from homeassistant.const import STATE_ON
 from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -55,7 +56,7 @@ class ChemineeForceSwitch(_Base, RestoreEntity):
         await super().async_added_to_hass()
         last = await self.async_get_last_state()
         if last is not None:
-            self.coordinator.fire_force = last.state == "on"
+            self.coordinator.fire_force = last.state == STATE_ON
 
     @property
     def is_on(self) -> bool:

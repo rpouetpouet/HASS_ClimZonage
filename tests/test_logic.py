@@ -28,6 +28,8 @@ house_setpoint = _LOGIC.house_setpoint
 remote_setpoint = _LOGIC.remote_setpoint
 watchdog_mode = _LOGIC.watchdog_mode
 pick_source_option = _LOGIC.pick_source_option
+merge_options = _LOGIC.merge_options
+skip_damper_zones = _LOGIC.skip_damper_zones
 snap = _LOGIC.snap
 virtual_temperature = _LOGIC.virtual_temperature
 zone_demands = _LOGIC.zone_demands
@@ -277,3 +279,38 @@ def test_source_de_temperature_reglage_102():
     assert pick_source_option(options[:1], want_panel=True) is None
     assert pick_source_option([], want_panel=False) is None
     assert pick_source_option(None, want_panel=False) is None
+
+
+def test_merge_options_les_options_gagnent():
+    """Régression : les réglages modifiés ne doivent JAMAIS revenir aux défauts.
+
+    `entry.data` garde les valeurs de création, `entry.options` les réglages de
+    l'utilisateur. Une fusion dans le mauvais sens faisait revenir deadband 0,3
+    à 0,7 dès qu'une zone était modifiée — silencieusement.
+    """
+    data = {"deadband": 0.7, "min_vents": 2, "engine_entity": "climate.clim_master"}
+    options = {"deadband": 0.3, "min_vents": 1, "sensor_timeout_min": 90}
+    merged = merge_options(data, options)
+    assert merged["deadband"] == 0.3, "les options doivent gagner sur data"
+    assert merged["min_vents"] == 1
+    assert merged["sensor_timeout_min"] == 90
+    # une clé absente des options est conservée depuis data
+    assert merged["engine_entity"] == "climate.clim_master"
+    # robustesse : options vides ou None
+    assert merge_options(data, {}) == data
+    assert merge_options(data, None) == data
+    # l'ordre inverse (bug historique) est bien détecté
+    assert {**options, **data}["deadband"] == 0.7
+
+
+def test_skip_damper_zones():
+    """Une lecture incomplète ne doit jamais bouger un clapet."""
+    temps = {"alice": 20.5, "noemie": None, "nous": 21.0}
+    # sonde muette (KO) et lecture None : les deux sont écartées
+    assert skip_damper_zones({"noemie"}, temps) == {"noemie"}
+    assert skip_damper_zones(set(), {"alice": None, "nous": 21.0}) == {"alice"}
+    assert skip_damper_zones({"nous"}, {"alice": None, "nous": None}) == {"alice", "nous"}
+    # tout va bien : aucune zone écartée
+    assert skip_damper_zones(set(), {"alice": 20.5}) == set()
+    # 0.0 est une température valide (et non un None déguisé)
+    assert skip_damper_zones(set(), {"alice": 0.0}) == set()

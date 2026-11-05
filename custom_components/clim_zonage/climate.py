@@ -75,7 +75,12 @@ class ZoneClimate(CoordinatorEntity[ZonageCoordinator], ClimateEntity, RestoreEn
         await super().async_added_to_hass()
         last = await self.async_get_last_state()
         if last is not None:
-            if last.state in (HVACMode.OFF, HVACMode.HEAT, HVACMode.COOL):
+            if last.state in (
+                HVACMode.OFF,
+                HVACMode.HEAT,
+                HVACMode.COOL,
+                HVACMode.FAN_ONLY,
+            ):
                 self.coordinator.zone_modes[self.zone.uid] = _MODES_REVERSE[last.state]
             temp = last.attributes.get(ATTR_TEMPERATURE)
             if temp is not None:
