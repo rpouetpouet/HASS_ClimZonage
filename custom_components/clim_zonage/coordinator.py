@@ -33,7 +33,7 @@ from homeassistant.const import (
     STATE_OPENING,
 )
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
@@ -96,6 +96,8 @@ from .const import (
     SYSTEM_MANUEL,
     SYSTEM_MODES,
     TEMP_STEP,
+    POWER_RESYNC_WINDOW_S,
+    ZERO_PULSE_S,
 )
 from .logic import (
     apply_min_vents,
@@ -212,6 +214,15 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         self._off_closed = False  # clapets déjà fermés pour cet arrêt ?
         self._manual_opened = False  # clapets déjà tous ouverts pour ce mode manuel ?
         self._source_last_try = 0.0  # dernier essai d'écriture du réglage 102
+        self._source_write_at = 0.0  # horodatage de la dernière écriture réussie
+        # « pic à 0 » vers le pont : fait une fois par entrée en mode manuel/arrêt
+        self._zero_done = False
+        self._zero_until = 0.0
+        self._zero_cancel = None
+        # mode du moteur mémorisé à l'entrée en manuel (réaffirmé si le 102
+        # éteint l'unité, cf. issue #610 du fork)
+        self._engine_mode_at_entry: str | None = None
+        self._power_resync_done = False
         # Chien de garde des sondes essentielles (zones + cheminée).
         self._sensor_last_ok: dict[str, float] = {}
         self._ko_since: float | None = None
@@ -813,6 +824,72 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
             }
         return zdata, open_vents
 
+    async def _async_pulse_zero(self) -> None:
+        """Envoie UNE fois `0` au pont, puis republie « aucune valeur ».
+
+        Le firmware CN105 traite `0` comme « pas de température externe »
+        (`set_remote_temperature(0)` : arrêt du keep-alive + paquet 0x07 sans
+        valeur) ; l'unité reprend alors la source définie par son réglage 102,
+        c'est-à-dire la télécommande filaire dans ces deux modes. Publier un 0
+        permanent polluerait l'historique d'une sonde de température : on le
+        maintient `ZERO_PULSE_S` puis on repasse à `unknown`.
+        """
+        if self._zero_done:
+            return
+        self._zero_done = True
+        self._zero_until = time.time() + ZERO_PULSE_S
+        if self._zero_cancel is not None:
+            self._zero_cancel()
+
+        @callback
+        def _clear(_now) -> None:
+            self._zero_until = 0.0
+            self._zero_cancel = None
+            self.hass.async_create_task(self.async_refresh())
+
+        self._zero_cancel = async_call_later(self.hass, ZERO_PULSE_S, _clear)
+        _LOGGER.info(
+            "Mode %s : envoi de 0 au pont (%ss) — l'unité reprend le thermostat "
+            "de la télécommande filaire",
+            self.system_mode,
+            ZERO_PULSE_S,
+        )
+
+    def _sent_virtual_temp(self) -> float | None:
+        """Valeur publiée sur le capteur lié au pont (0 = rien n'est envoyé)."""
+        return 0.0 if self._zero_until and time.time() < self._zero_until else None
+
+    async def _async_power_resync(self) -> None:
+        """Rallume l'unité si l'écriture du réglage 102 l'a éteinte.
+
+        Sur un gainable, écrire (et même lire) un function setting peut couper
+        l'unité — issue #610 du fork, confirmée par deux utilisateurs. On ne le
+        fait qu'une fois par entrée en mode, et seulement dans la fenêtre qui
+        suit notre écriture : jamais de ping-pong avec l'utilisateur, qui reste
+        maître du mode ensuite.
+        """
+        if self._power_resync_done or not self._source_write_at:
+            return
+        if time.time() - self._source_write_at > POWER_RESYNC_WINDOW_S:
+            return
+        state = self.hass.states.get(self.engine)
+        if state is None or state.state != HVAC_OFF:
+            return
+        if not self._engine_mode_at_entry:
+            return
+        self._power_resync_done = True
+        _LOGGER.warning(
+            "L'unité s'est éteinte après l'écriture du réglage 102 : "
+            "réaffirmation du mode %s (issue #610 du fork)",
+            self._engine_mode_at_entry,
+        )
+        await self.hass.services.async_call(
+            "climate",
+            "set_hvac_mode",
+            {ATTR_ENTITY_ID: self.engine, "hvac_mode": self._engine_mode_at_entry},
+            blocking=False,
+        )
+
     async def _async_state_arret(self) -> ZonageState:
         """ARRÊT : moteur éteint, clapets fermés **une seule fois**.
 
@@ -827,6 +904,7 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         """
         await self._async_engine_off()
         await self._async_apply_temp_source(panel=True)
+        await self._async_pulse_zero()
         if not self._off_closed or self._force_dampers_next:
             await self._async_apply_dampers(
                 set(), force=True, force_all=self._force_dampers_next
@@ -840,6 +918,7 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
             zones=zdata,
             strategy="off",
             open_vents=open_vents,
+            virtual_temp=self._sent_virtual_temp(),
         )
         return self._state
 
@@ -858,6 +937,8 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         ARRÊT : une manœuvre manuelle doit tenir.
         """
         await self._async_apply_temp_source(panel=True)
+        await self._async_pulse_zero()
+        await self._async_power_resync()
         if not self._manual_opened or self._force_dampers_next:
             await self._async_apply_dampers(
                 {z.uid for z in self.zones}, force=True, force_all=True
@@ -871,6 +952,7 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
             zones=zdata,
             strategy="manuel",
             open_vents=open_vents,
+            virtual_temp=self._sent_virtual_temp(),
         )
         return self._state
 
@@ -913,6 +995,7 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         if now - self._source_last_try < 300:
             return
         self._source_last_try = now
+        self._source_write_at = time.time()
         await self.hass.services.async_call(
             "select",
             "select_option",
@@ -1076,9 +1159,24 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
             return
         if system_mode == SYSTEM_AUTO and self.system_mode != SYSTEM_AUTO:
             self._last_toggle.clear()
+        previous = self.system_mode
         self.system_mode = system_mode
         self._off_closed = False
         self._manual_opened = False
+        # Nouvelle entrée en mode : le « pic à 0 » doit repartir (en Auto le
+        # pont a repris son keep-alive), et le garde-fou #610 se réarme.
+        self._zero_done = False
+        self._zero_until = 0.0
+        self._power_resync_done = False
+        self._source_write_at = 0.0
+        if self._zero_cancel is not None:
+            self._zero_cancel()
+            self._zero_cancel = None
+        if system_mode == SYSTEM_MANUEL and previous != SYSTEM_MANUEL:
+            engine = self.hass.states.get(self.engine)
+            self._engine_mode_at_entry = (
+                engine.state if engine is not None and engine.state != HVAC_OFF else None
+            )
         # Un changement de mode est un ordre humain : l'écriture du réglage 102
         # ne doit pas être retardée par l'anti-boucle.
         self._source_last_try = 0.0

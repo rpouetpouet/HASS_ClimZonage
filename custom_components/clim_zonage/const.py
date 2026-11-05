@@ -2,7 +2,7 @@
 
 DOMAIN = "clim_zonage"
 NAME = "Clim Zonage"
-VERSION = "0.13.0"      # doit suivre manifest.json (source de vérité pour HACS)
+VERSION = "0.13.1"      # doit suivre manifest.json (source de vérité pour HACS)
 
 # ─── Mode du système : sélecteur à trois positions ──────────────────────────
 # `AUTO`   : le zonage régule (comportement historique du master switch ON).
@@ -21,6 +21,18 @@ SYSTEM_FROM_LABEL = {v: k for k, v in SYSTEM_LABELS.items()}
 # interne / télécommande filaire / externe CN105). Optionnelles : sans elle,
 # l'intégration ne touche pas au réglage et le mode MANUEL n'est pas complet.
 CONF_TEMP_SOURCE_SELECT = "temp_source_select"
+
+# Durée du « pic à 0 » envoyé au pont quand on passe en Manuel ou en Arrêt.
+# Le firmware CN105, en recevant 0, arrête son keep-alive et envoie UN paquet
+# « pas de température externe » : l'unité reprend alors le thermostat de la
+# télécommande filaire. Au-delà de ce délai on republie « aucune valeur », pour
+# ne pas laisser un 0 °C dans l'historique de la sonde.
+ZERO_PULSE_S = 20
+
+# Fenêtre pendant laquelle on réaffirme le mode du moteur après une écriture du
+# réglage 102 : sur un gainable, écrire (ou même lire) un function setting peut
+# ÉTEINDRE l'unité (issue #610 du fork, confirmée sur deux installations).
+POWER_RESYNC_WINDOW_S = 120
 
 # ─── Clés de configuration (data de l'entrée) ────────────────────────────────
 CONF_ENGINE = "engine_entity"          # climate.* du gainable (moteur)

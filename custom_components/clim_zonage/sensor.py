@@ -13,7 +13,7 @@ from homeassistant.const import UnitOfTemperature
 from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, NAME
+from .const import DOMAIN, NAME, STRATEGY_GENERATOR, STRATEGY_REMOTE
 from .coordinator import ZonageCoordinator
 
 
@@ -112,6 +112,16 @@ class VirtualTempSensor(_Base):
 
     @property
     def extra_state_attributes(self) -> dict:
+        data = self.coordinator.data
+        if data is not None and not data.active:
+            return {
+                "methode": "aucune température envoyée à l'unité",
+                "usage": (
+                    "un 0 est publié quelques secondes pour faire arrêter le keep-alive "
+                    "du pont : l'unité reprend le thermostat de la télécommande filaire"
+                ),
+                "mode_systeme": self.coordinator.system_mode,
+            }
         return {
             "methode": "zones en demande uniquement (la plus froide en chaud, la plus chaude en froid)",
             "usage": "à envoyer au gainable via remote_temperature_source (stratégie déportée)",
@@ -171,7 +181,10 @@ class StrategySensor(_Base):
         demande = self.coordinator.options.get("strategy")
         return {
             "strategie_demandee": demande,
-            "repli_actif": demande != data.strategy,
+            # En Manuel / Arrêt il n'y a pas de stratégie moteur : ce n'est pas
+            # un repli, donc on n'allume pas l'indicateur.
+            "repli_actif": data.strategy in (STRATEGY_GENERATOR, STRATEGY_REMOTE)
+            and demande != data.strategy,
             "temperature_deportee_disponible": data.virtual_temp is not None,
             "consigne_envoyee": data.engine_setpoint,
         }

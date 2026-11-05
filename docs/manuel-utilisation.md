@@ -318,6 +318,17 @@ possible à tout moment avec les YAML sauvegardés (voir §10).
   utiliser pour tester, dépanner, ou laisser quelqu'un piloter à la main sans démonter la régulation.
 - **Arrêt** : tout s'arrête, et c'est le **seul** chemin d'extinction.
 
+### Ce que fait chaque position, exactement
+
+| | Clapets | Unité | Température qui la pilote |
+|---|---|---|---|
+| **Auto** | décidés par le zonage | consigne + mode + vitesse pilotés | **déportée** (la plus froide des pièces en demande), réglage 102 = « Externe (CN105/WiFi) » |
+| **Manuel** | **tous ouverts**, une fois | **laissée telle quelle** — tu la pilotes au panneau | **télécommande filaire**, réglage 102 = « Télécommande filaire » |
+| **Arrêt** | **tous fermés**, une fois | **éteinte** | idem Manuel (l'unité n'a plus de déportée) |
+
+Arrêt, c'est donc « Manuel + unité éteinte + vannes fermées » : dans les deux cas l'intégration
+arrête de fournir une température à l'unité, qui reprend le thermostat de son panneau.
+
 ### Pourquoi le thermostat du panneau, et pas la température déportée
 
 En Auto, l'intégration envoie au gainable une **température déportée** (la plus froide des pièces en
@@ -335,6 +346,23 @@ ignorerait, silencieusement).
 pas lieu : l'unité reste sur la dernière température déportée reçue, puis retombe sur **sa sonde
 interne** après 15 minutes sans valeur. Le mode Manuel fonctionne quand même (vannes ouvertes, aucune
 décision), mais la régulation n'est pas celle du panneau.
+
+### Le « pic à 0 » : comment on rend vraiment la main au panneau
+
+Changer le réglage 102 ne suffit pas : tant que le pont CN105 continue d'envoyer une température
+déportée, l'unité reçoit **deux** mesures concurrentes et n'en fait qu'à sa tête (constaté : la
+température oscille entre la valeur envoyée et celle du panneau). Le firmware traite la valeur **`0`**
+comme « pas de température externe » : il arrête alors son keep-alive et envoie un unique paquet sans
+valeur, et l'unité reprend son thermostat.
+
+L'intégration publie donc `0` pendant **20 secondes** à chaque entrée en Manuel ou en Arrêt, puis
+repasse à `unknown` — un 0 permanent polluerait l'historique d'une sonde de température.
+
+⚠️ **Garde-fou** : sur un gainable, écrire (et même lire) un function setting peut **éteindre
+l'unité** (issue #610 du fork, confirmée par deux utilisateurs sur du matériel de la même famille).
+En Manuel, la consigne de mode en vigueur à l'entrée est mémorisée et réaffirmée une seule fois si
+l'unité retombe en `off` dans les 2 minutes qui suivent l'écriture du 102. En Arrêt, elle doit rester
+éteinte, donc rien n'est fait.
 
 Ce qui se passe exactement en passant sur Arrêt (mesuré le 03/11/2026, effet en ~3 s) :
 
