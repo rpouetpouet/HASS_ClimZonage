@@ -27,6 +27,7 @@ generator_setpoint = _LOGIC.generator_setpoint
 house_setpoint = _LOGIC.house_setpoint
 remote_setpoint = _LOGIC.remote_setpoint
 watchdog_mode = _LOGIC.watchdog_mode
+pick_source_option = _LOGIC.pick_source_option
 snap = _LOGIC.snap
 virtual_temperature = _LOGIC.virtual_temperature
 zone_demands = _LOGIC.zone_demands
@@ -253,3 +254,26 @@ def test_consigne_de_maison_strategie_deportee():
     assert house_setpoint([(20.0, 19.5, False)], "heat", 16, 31, 0.5) is None
     # bornage au pas et aux limites de l'unité
     assert house_setpoint([(10.0, 40.0, True)], "heat", 16, 31, 0.5) == 31.0
+
+
+def test_source_de_temperature_reglage_102():
+    """Quelle option du réglage 102 écrire selon le mode du système."""
+    # Les libellés viennent du YAML ESPHome de l'utilisateur, pas de nous.
+    options = [
+        "Sonde interne (défaut)",
+        "Télécommande filaire",
+        "Externe (CN105 / WiFi)",
+    ]
+    # AUTO : c'est la température déportée envoyée par l'intégration qui régule.
+    assert pick_source_option(options, want_panel=False) == "Externe (CN105 / WiFi)"
+    # MANUEL et ARRÊT : l'utilisateur reprend la main sur le panneau.
+    assert pick_source_option(options, want_panel=True) == "Télécommande filaire"
+    # Libellés réécrits : on reconnaît par mots-clés, pas par la chaîne exacte.
+    autres = ["interne", "FILAIRE (PAR-41)", "wifi cn105"]
+    assert pick_source_option(autres, want_panel=True) == "FILAIRE (PAR-41)"
+    assert pick_source_option(autres, want_panel=False) == "wifi cn105"
+    # Aucune correspondance ou liste vide : on n'écrit RIEN (jamais une valeur
+    # inventée sur une fonction setting de l'unité).
+    assert pick_source_option(options[:1], want_panel=True) is None
+    assert pick_source_option([], want_panel=False) is None
+    assert pick_source_option(None, want_panel=False) is None

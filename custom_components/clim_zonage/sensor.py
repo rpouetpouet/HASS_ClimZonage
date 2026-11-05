@@ -144,6 +144,7 @@ class DemandingZonesSensor(_Base):
             "feu": data.fire,
             "cheminee_assure_le_chauffage": data.fire_takeover,
             "systeme_actif": data.active,
+            "systeme_mode": self.coordinator.system_mode,
         }
 
 

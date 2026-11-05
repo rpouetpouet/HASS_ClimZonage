@@ -1,4 +1,10 @@
-"""Switches du zonage : le master et la prise en charge cheminée."""
+"""Switches du zonage : la prise en charge cheminée.
+
+Le master switch ON/OFF a été remplacé en 0.13.0 par le sélecteur à trois
+positions `select.clim_zonage_mode_du_systeme` (Auto / Manuel / Arrêt) : deux
+états ne suffisaient plus à distinguer « le zonage régule », « l'utilisateur a
+la main, vannes ouvertes » et « tout est arrêté ».
+"""
 
 from __future__ import annotations
 
@@ -13,12 +19,7 @@ from .coordinator import ZonageCoordinator
 
 async def async_setup_entry(hass, entry, async_add_entities):
     coordinator: ZonageCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities(
-        [
-            ZonageActiveSwitch(coordinator, entry),
-            ChemineeForceSwitch(coordinator, entry),
-        ]
-    )
+    async_add_entities([ChemineeForceSwitch(coordinator, entry)])
 
 
 class _Base(CoordinatorEntity[ZonageCoordinator], SwitchEntity):
@@ -33,39 +34,6 @@ class _Base(CoordinatorEntity[ZonageCoordinator], SwitchEntity):
             manufacturer="rpouetpouet",
             model="Zonage gainable réversible",
         )
-
-
-class ZonageActiveSwitch(_Base, RestoreEntity):
-    """Master switch : seul chemin pour éteindre le système.
-
-    OFF = moteur éteint + tous les clapets fermés. C'est le point d'accroche
-    unique d'une automatisation de présence (mode manuel / absence).
-    """
-
-    _attr_name = "Système actif"
-    _attr_icon = "mdi:power"
-
-    def __init__(self, coordinator, entry):
-        super().__init__(coordinator, entry)
-        self._attr_unique_id = f"{entry.entry_id}_actif"
-
-    async def async_added_to_hass(self) -> None:
-        await super().async_added_to_hass()
-        last = await self.async_get_last_state()
-        if last is not None:
-            self.coordinator.active = last.state == "on"
-
-    @property
-    def is_on(self) -> bool:
-        return self.coordinator.active
-
-    async def async_turn_on(self, **kwargs) -> None:
-        await self.coordinator.async_set_active(True)
-        self.async_write_ha_state()
-
-    async def async_turn_off(self, **kwargs) -> None:
-        await self.coordinator.async_set_active(False)
-        self.async_write_ha_state()
 
 
 class ChemineeForceSwitch(_Base, RestoreEntity):

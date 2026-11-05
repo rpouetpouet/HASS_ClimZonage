@@ -17,6 +17,7 @@ from .const import (
     CONF_CYCLE_SECONDS,
     CONF_DAMPER_COURSE,
     CONF_SENSOR_FROZEN_H,
+    CONF_TEMP_SOURCE_SELECT,
     CONF_SENSOR_GRACE_S,
     CONF_SENSOR_TIMEOUT_MIN,
     CONF_DEADBAND,
@@ -83,6 +84,7 @@ GLOBAL_DEFAULTS: dict[str, Any] = {
     CONF_SENSOR_TIMEOUT_MIN: DEFAULT_SENSOR_TIMEOUT_MIN,
     CONF_SENSOR_GRACE_S: DEFAULT_SENSOR_GRACE_S,
     CONF_SENSOR_FROZEN_H: DEFAULT_SENSOR_FROZEN_H,
+    CONF_TEMP_SOURCE_SELECT: "",
 }
 
 
@@ -230,6 +232,15 @@ def _global_schema(current: dict) -> vol.Schema:
                     min=1, max=48, step=1, mode=selector.NumberSelectorMode.BOX
                 )
             ),
+            # Facultatif : entité `select` du réglage 102 de l'unité (source de
+            # température). Sans elle, le mode MANUEL laisse l'unité sur la
+            # température déportée au lieu du thermostat de la télécommande.
+            vol.Optional(
+                CONF_TEMP_SOURCE_SELECT,
+                description={"suggested_value": cur[CONF_TEMP_SOURCE_SELECT] or None},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="select")
+            ),
         }
     )
 
@@ -349,6 +360,10 @@ class ClimZonageOptionsFlow(OptionsFlow):
             data = {**self.entry.options}
             data.pop(CONF_ZONES, None)
             data.update(user_input)
+            # Une entité facultative laissée vide revient à None : on stocke une
+            # chaîne vide, sinon `options.get(...)` rend None et le test `if not
+            # entity` du coordinateur se comporte différemment d'une absence.
+            data[CONF_TEMP_SOURCE_SELECT] = data.get(CONF_TEMP_SOURCE_SELECT) or ""
             data[CONF_ZONES] = self._zones()
             return self.async_create_entry(title="", data=data)
         current = {**self.entry.data, **self.entry.options}

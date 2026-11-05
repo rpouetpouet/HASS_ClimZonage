@@ -21,7 +21,9 @@ l'intégration.
    l'intégration passe en **consigne de repli** (17 °C en chaud / 28 °C en froid) et en
    **ventilation `auto`**. Le thermostat interne de l'unité fait alors son travail, et
    l'unité reste joignable : dès qu'une zone redemande, la consigne remonte et les
-   clapets s'ouvrent. Seul le **master switch** éteint réellement l'unité.
+   clapets s'ouvrent. Seul le **mode `Arrêt`** éteint réellement l'unité ; le mode `Manuel`
+   rend la main à l'utilisateur (toutes les vannes ouvertes, plus aucune décision) et remet
+   l'unité sur le thermostat de la télécommande filaire.
 2. **La consigne du moteur ne dérive jamais d'un `min()`/`max()` des consignes de
    zone.** C'est l'erreur qui affame les autres pièces : dès que la pièce de reprise
    dépasse la consigne calculée (cheminée, soleil, grande hauteur), le compresseur
@@ -64,7 +66,7 @@ redémarrage.
 | Entité | Rôle |
 |---|---|
 | `climate.clim_zonage_<zone>` | Thermostat de la pièce (Temp, Temp cible, modes `off/heat/cool`) |
-| `switch.clim_zonage_systeme_actif` | **Master switch** — OFF = unité éteinte + clapets fermés. Point d'accroche unique pour une automatisation de présence |
+| `select.clim_zonage_mode_du_systeme` | **Mode du système** — `Auto` (le zonage régule) / `Manuel` (toutes les vannes ouvertes une fois, plus aucune décision : l'unité se pilote au panneau et régule sur le thermostat de la télécommande filaire) / `Arrêt` (unité éteinte + clapets fermés). Point d'accroche unique pour une automatisation de présence |
 | `select.clim_zonage_mode_global` | `heat` / `cool` / `fan_only` |
 | `switch.clim_zonage_cheminee_chauffage_assure_par_le_feu` | Force / interdit manuellement la prise en charge par le feu |
 | `binary_sensor.clim_zonage_chauffage_en_demande` | Au moins une zone demande |

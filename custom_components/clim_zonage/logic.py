@@ -94,6 +94,28 @@ MODE_GELE = "gele"
 MODE_DEGRADE = "degrade"
 
 
+def pick_source_option(options: Sequence[str], want_panel: bool) -> str | None:
+    """Quelle option du réglage 102 (source de température de l'unité) choisir ?
+
+    `want_panel=True`  -> le thermostat de la **télécommande filaire** (le panneau).
+    `want_panel=False` -> la source **externe CN105** (la température déportée que
+    l'intégration envoie au gainable).
+
+    On reconnaît les options par mots-clés plutôt que par leur libellé exact :
+    ils viennent du YAML ESPHome (`options: {1: "Sonde interne (défaut)", …}`) et
+    peuvent être réécrits. Aucune correspondance ⇒ `None`, et l'appelant ne
+    touche à rien : mieux vaut ne pas écrire que d'écrire faux.
+    """
+    if not options:
+        return None
+    keys = ("filaire",) if want_panel else ("cn105", "externe")
+    for option in options:
+        low = option.lower()
+        if any(key in low for key in keys):
+            return option
+    return None
+
+
 def watchdog_mode(
     ko_count: int, ko_since_ts: float | None, now_ts: float, grace_s: float
 ) -> str:

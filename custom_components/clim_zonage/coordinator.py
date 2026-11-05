@@ -56,6 +56,7 @@ from .const import (
     CONF_MIN_CYCLE,
     CONF_MIN_VENTS,
     CONF_STRATEGY,
+    CONF_TEMP_SOURCE_SELECT,
     CONF_ZONE_DAMPERS,
     CONF_ZONE_DUMP,
     CONF_ZONE_OFFSET,
@@ -90,6 +91,10 @@ from .const import (
     STARTUP_NOTIFY_GRACE_S,
     STRATEGY_GENERATOR,
     STRATEGY_REMOTE,
+    SYSTEM_ARRET,
+    SYSTEM_AUTO,
+    SYSTEM_MANUEL,
+    SYSTEM_MODES,
     TEMP_STEP,
 )
 from .logic import (
@@ -104,6 +109,7 @@ from .logic import (
     MODE_DEGRADE,
     MODE_GELE,
     MODE_NORMAL,
+    pick_source_option,
     watchdog_mode,
     remote_setpoint,
     snap,
@@ -182,7 +188,8 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         self.fireplace_sensor: str | None = entry.data.get(CONF_FIREPLACE)
 
         # État persisté par les entités (source de vérité unique)
-        self.active: bool = True
+        # `system_mode` remplace l'ancien booléen `active` : Auto / Manuel / Arrêt.
+        self.system_mode: str = SYSTEM_AUTO
         self.mode: str = HVAC_HEAT
         self.zone_targets: dict[str, float] = {}
         self.zone_modes: dict[str, str] = {}
@@ -202,7 +209,9 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         # que l'état corresponde déjà ou non (propriété lue par le bouton).
         # État d'hystérésis : une zone en demande le reste jusqu'à sa consigne.
         self._zone_demanding: dict[str, bool] = {}
-        self._off_closed = False  # les clapets ont-ils déjà été fermés pour cet arrêt ?
+        self._off_closed = False  # clapets déjà fermés pour cet arrêt ?
+        self._manual_opened = False  # clapets déjà tous ouverts pour ce mode manuel ?
+        self._source_last_try = 0.0  # dernier essai d'écriture du réglage 102
         # Chien de garde des sondes essentielles (zones + cheminée).
         self._sensor_last_ok: dict[str, float] = {}
         self._ko_since: float | None = None
@@ -498,64 +507,24 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
     async def _async_update_data(self) -> ZonageState:
         opts = self.options
 
+        # 1. MANUEL / ARRÊT → l'intégration rend la main, aucune décision.
+        #    On sort AVANT le chien de garde : en manuel, une sonde muette ne
+        #    change rien à ce qu'on fait (rien), et une notification d'alerte
+        #    n'aurait aucun sens puisque plus aucune décision n'en dépend.
+        if self.system_mode == SYSTEM_ARRET:
+            return await self._async_state_arret()
+        if self.system_mode == SYSTEM_MANUEL:
+            return await self._async_state_manuel()
+
         # 0. Chien de garde : une sonde muette gèle ou dégrade la décision.
         watchdog, ko_zones = await self._async_watchdog(opts)
         freeze = watchdog == MODE_GELE
 
-        # 1. MASTER OFF → tout s'arrête, et c'est le seul `off` du système.
-        if not self.active:
-            await self._async_engine_off()
-            # On ferme les clapets UNE SEULE FOIS à l'entrée en arrêt, puis on
-            # laisse la main : en mode arrêté, une ouverture manuelle d'un clapet
-            # doit tenir (test, dépannage, pilotage par la télécommande murale).
-            # Les refermer à chaque tick reviendrait à combattre l'utilisateur.
-            if not self._off_closed or self._force_dampers_next:
-                await self._async_apply_dampers(
-                    set(), force=True, force_all=self._force_dampers_next
-                )
-                self._force_dampers_next = False
-                self._off_closed = True
-            # On garde les zones lisibles (consigne, température, mode `off`) :
-            # l'utilisateur doit voir ce qui redémarrera, et `zone_modes` /
-            # `zone_targets` restent intacts pour la réactivation.
-            zdata_off: dict[str, dict[str, Any]] = {}
-            open_off = 0
-            for zone in self.zones:
-                states = [self.hass.states.get(d) for d in zone.dampers]
-                n_open = sum(
-                    1
-                    for s in states
-                    if s is not None and s.state in (STATE_OPEN, STATE_OPENING)
-                )
-                open_off += n_open
-                zdata_off[zone.uid] = {
-                    "name": zone.name,
-                    # Le mode AFFICHÉ reste celui mémorisé : si on exposait `off`
-                    # pendant l'arrêt, RestoreEntity enregistrerait `off` et un
-                    # redémarrage de HA survenu master éteint ferait perdre les
-                    # modes des zones. L'arrêt se lit sur `systeme_actif` et sur
-                    # hvac_action, pas en maquillant chaque zone.
-                    "mode": self.zone_mode(zone.uid),
-                    "temp": self._zone_temp(zone),
-                    "temp_brute": self._float_state(zone.temp_sensor),
-                    "offset": zone.offset,
-                    "target": self.zone_target(zone.uid),
-                    "demand": False,
-                    "seuil_demarrage": None,
-                    "seuil_arret": None,
-                    "fire_room": zone.fire_room,
-                    "open": n_open > 0,
-                    "clapets_ouverts": n_open,
-                    "system_off": True,
-                }
-            self._state = ZonageState(
-                active=False,
-                mode=HVAC_OFF,
-                zones=zdata_off,
-                strategy="off",
-                open_vents=open_off,
-            )
-            return self._state
+        # 2. AUTO : l'unité doit écouter la température déportée (réglage 102).
+        #    Contrôlé à chaque cycle, écrit seulement en cas d'écart — c'est ce
+        #    qui répare automatiquement un retour de MANUEL ou un redémarrage
+        #    survenu alors que 102 pointait sur le panneau.
+        await self._async_apply_temp_source(panel=False)
 
         mode = self.mode if self.mode in (HVAC_HEAT, HVAC_COOL, HVAC_FAN_ONLY) else HVAC_HEAT
 
@@ -807,6 +776,156 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         self.next_damper_window = min(futurs) if futurs else self.next_cycle
         return self._state
 
+    # ─── modes MANUEL et ARRÊT ──────────────────────────────────────────────
+    def _idle_zone_data(self, *, system_off: bool, manuel: bool) -> tuple[dict, int]:
+        """Photographie des zones quand l'intégration ne décide plus rien.
+
+        On garde les zones lisibles (consigne, température, mode mémorisé) :
+        l'utilisateur doit voir ce qui redémarrera, et `zone_modes` /
+        `zone_targets` restent intacts pour la réactivation. Le mode AFFICHÉ
+        reste celui mémorisé : exposer `off` pendant l'arrêt ferait enregistrer
+        `off` par `RestoreEntity`, et un redémarrage de HA survenu pendant
+        l'arrêt ferait perdre les modes des zones.
+        """
+        zdata: dict[str, dict[str, Any]] = {}
+        open_vents = 0
+        for zone in self.zones:
+            states = [self.hass.states.get(d) for d in zone.dampers]
+            n_open = sum(
+                1 for s in states if s is not None and s.state in (STATE_OPEN, STATE_OPENING)
+            )
+            open_vents += n_open
+            zdata[zone.uid] = {
+                "name": zone.name,
+                "mode": self.zone_mode(zone.uid),
+                "temp": self._zone_temp(zone),
+                "temp_brute": self._float_state(zone.temp_sensor),
+                "offset": zone.offset,
+                "target": self.zone_target(zone.uid),
+                "demand": False,
+                "seuil_demarrage": None,
+                "seuil_arret": None,
+                "fire_room": zone.fire_room,
+                "open": n_open > 0,
+                "clapets_ouverts": n_open,
+                "system_off": system_off,
+                "manuel": manuel,
+            }
+        return zdata, open_vents
+
+    async def _async_state_arret(self) -> ZonageState:
+        """ARRÊT : moteur éteint, clapets fermés **une seule fois**.
+
+        C'est le seul `off` du système. Ensuite la main est à l'utilisateur : une
+        ouverture manuelle d'un clapet doit tenir (test, dépannage, télécommande
+        murale) — les refermer à chaque tick reviendrait à le combattre.
+
+        La source de température de l'unité repasse sur la **télécommande
+        filaire** : si l'utilisateur rallume le gainable au panneau alors que le
+        système est arrêté, l'unité doit réguler sur SON thermostat, pas sur une
+        température déportée que plus personne ne met à jour.
+        """
+        await self._async_engine_off()
+        await self._async_apply_temp_source(panel=True)
+        if not self._off_closed or self._force_dampers_next:
+            await self._async_apply_dampers(
+                set(), force=True, force_all=self._force_dampers_next
+            )
+            self._force_dampers_next = False
+            self._off_closed = True
+        zdata, open_vents = self._idle_zone_data(system_off=True, manuel=False)
+        self._state = ZonageState(
+            active=False,
+            mode=HVAC_OFF,
+            zones=zdata,
+            strategy="off",
+            open_vents=open_vents,
+        )
+        return self._state
+
+    async def _async_state_manuel(self) -> ZonageState:
+        """MANUEL : toutes les vannes ouvertes, puis plus aucune décision.
+
+        Ce mode existe pour **reprendre la main** : ni mode, ni consigne, ni
+        vitesse, ni clapet ne sont commandés — le gainable s'exploite depuis la
+        télécommande filaire (ou son entité `climate`). L'unité doit donc écouter
+        le thermostat du panneau, d'où le réglage 102 sur « télécommande
+        filaire ».
+
+        Les clapets sont ouverts **une fois** à l'entrée, en forçant l'ordre sur
+        toutes les zones (aucune n'est déjà dans l'état voulu puisqu'on vient de
+        l'arrêt) ; ensuite on ne les touche plus, pour la même raison qu'en
+        ARRÊT : une manœuvre manuelle doit tenir.
+        """
+        await self._async_apply_temp_source(panel=True)
+        if not self._manual_opened or self._force_dampers_next:
+            await self._async_apply_dampers(
+                {z.uid for z in self.zones}, force=True, force_all=True
+            )
+            self._force_dampers_next = False
+            self._manual_opened = True
+        zdata, open_vents = self._idle_zone_data(system_off=False, manuel=True)
+        self._state = ZonageState(
+            active=False,
+            mode=self.mode,
+            zones=zdata,
+            strategy="manuel",
+            open_vents=open_vents,
+        )
+        return self._state
+
+    async def _async_apply_temp_source(self, panel: bool) -> None:
+        """Aligne le réglage 102 de l'unité sur le mode du système.
+
+        - AUTO : la température déportée envoyée par l'intégration doit être la
+          source écoutée ⇒ option « Externe (CN105 / WiFi) ».
+        - MANUEL / ARRÊT : l'utilisateur reprend la main ⇒ le thermostat de la
+          **télécommande filaire**.
+
+        On n'écrit **que si l'état courant diffère** : le bus CN105 est fragile
+        (2400 bauds, demi-duplex) et une fonction setting n'a aucune raison
+        d'être réécrite à chaque cycle. Entité non configurée ⇒ on ne touche à
+        rien et on le dit une fois.
+        """
+        # Au démarrage, le mode réel n'est pas encore connu : c'est l'entité
+        # `select` qui le restaure, après le premier cycle du coordinateur. On
+        # attend donc la fin de la fenêtre d'amorçage, sinon un redémarrage
+        # survenu en mode manuel ferait l'aller-retour Externe → Filaire sur un
+        # bus CN105 déjà occupé à se réinitialiser.
+        if time.time() < getattr(self, "_startup_damper_until", 0.0):
+            return
+        entity = self.options.get(CONF_TEMP_SOURCE_SELECT) or self.entry.data.get(
+            CONF_TEMP_SOURCE_SELECT
+        )
+        if not entity:
+            return
+        state = self.hass.states.get(entity)
+        if state is None:
+            return
+        wanted = pick_source_option(state.attributes.get("options") or [], panel)
+        if not wanted or state.state == wanted:
+            return
+        # Anti-boucle : si l'écriture ne « prend » pas (bus occupé, unité qui
+        # refuse), on ne la rejoue pas à chaque cycle de 30 s — le bus CN105 est
+        # à 2400 bauds et demi-duplex, une écriture insistante sature la lecture
+        # des réglages (mesuré : 13 salves `Power: OFF` en 130 s).
+        now = time.monotonic()
+        if now - self._source_last_try < 300:
+            return
+        self._source_last_try = now
+        await self.hass.services.async_call(
+            "select",
+            "select_option",
+            {ATTR_ENTITY_ID: entity, "option": wanted},
+            blocking=False,
+        )
+        _LOGGER.info(
+            "Source de température de l'unité : %s → %s (mode %s)",
+            state.state,
+            wanted,
+            self.system_mode,
+        )
+
     # ─── écritures ──────────────────────────────────────────────────────────
     async def _async_apply_dampers(
         self,
@@ -930,26 +1049,39 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
             )
 
     # ─── actions appelées par les entités ───────────────────────────────────
-    async def async_set_active(self, active: bool) -> None:
-        """Master switch. La réactivation lève le verrou de cycle mini.
+    @property
+    def active(self) -> bool:
+        """Le zonage régule-t-il ? (compatibilité : `system_mode == auto`)"""
+        return self.system_mode == SYSTEM_AUTO
 
-        Passer OFF ferme tous les clapets d'autorité (force) et horodate ce
-        mouvement ; sans ce nettoyage, un retour sur ON dans les 5 minutes
-        laisserait les clapets fermés alors que des pièces demandent, et
-        l'utilisateur conclurait que le système ne redémarre pas.
+    async def async_set_system_mode(self, system_mode: str) -> None:
+        """Sélecteur Auto / Manuel / Arrêt : le point d'accroche unique.
+
+        Les deux sorties de l'automatique réarment leur nettoyage d'entrée :
+        ARRÊT referme **une fois** tous les clapets, MANUEL les ouvre **une
+        fois** tous. Sans ce réarmement, un retour dans le même mode dans les
+        5 minutes laisserait les clapets dans l'état du mode précédent,
+        verrouillé par `min_cycle`, et l'utilisateur conclurait que le système
+        ne répond pas.
+
+        Revenir en AUTO lève le verrou de cycle mini : une pièce qui demande ne
+        doit pas attendre l'expiration du verrou armé par le nettoyage.
 
         On rafraîchit **immédiatement** (`async_refresh`) et non via le
-        debouncer : une action humaine sur le master switch doit être visible
-        tout de suite, alors que `async_request_refresh` peut attendre la fin
-        du cooldown (jusqu'à 10 s) — mesuré le 03/11/2026.
+        debouncer : une action humaine doit être visible tout de suite, alors
+        que `async_request_refresh` peut attendre la fin du cooldown (jusqu'à
+        10 s) — mesuré le 03/11/2026.
         """
-        if active and not self.active:
+        if system_mode not in SYSTEM_MODES:
+            return
+        if system_mode == SYSTEM_AUTO and self.system_mode != SYSTEM_AUTO:
             self._last_toggle.clear()
-        self.active = active
-        # Un nouvel ordre explicite (ON ou OFF) réarme la fermeture d'office des
-        # clapets : en OFF on ne ferme qu'une fois, ensuite la main est à
-        # l'utilisateur (ouverture manuelle, télécommande murale).
+        self.system_mode = system_mode
         self._off_closed = False
+        self._manual_opened = False
+        # Un changement de mode est un ordre humain : l'écriture du réglage 102
+        # ne doit pas être retardée par l'anti-boucle.
+        self._source_last_try = 0.0
         await self.async_refresh()
 
     async def async_set_global_mode(self, mode: str) -> None:

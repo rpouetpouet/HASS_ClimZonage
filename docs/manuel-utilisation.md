@@ -73,7 +73,7 @@ Clim Extension   climate.clim_extension   ESPHome, pont CN105, IP 192.168.42.34 
 | Entité | Ce que c'est |
 |---|---|
 | `climate.clim_zonage_<zone>` | Le thermostat d'une pièce : température mesurée, consigne, mode `off/heat/cool` |
-| `switch.clim_zonage_systeme_actif` | **Master switch**. OFF = gainable éteint + tous les clapets fermés |
+| `select.clim_zonage_mode_du_systeme` | **Mode du système** : `Auto` (le zonage régule), `Manuel` (vannes ouvertes, on reprend la main), `Arrêt` (gainable éteint + clapets fermés) |
 | `select.clim_zonage_mode_global` | Saison : `heat`, `cool` ou `fan_only` (ventilation seule) |
 | `switch.clim_zonage_cheminee_chauffage_assure_par_le_feu` | Force ou interdit manuellement la prise en charge par le feu |
 | `binary_sensor.clim_zonage_chauffage_en_demande` | Au moins une pièce réclame de la chaleur |
@@ -93,10 +93,19 @@ Clim Extension   climate.clim_extension   ESPHome, pont CN105, IP 192.168.42.34 
 Toutes les 30 secondes — et immédiatement à chaque changement de sonde, de consigne, de mode ou de
 clapet — l'intégration exécute la même séquence.
 
-### Étape 1 — le master switch
+### Étape 1 — le mode du système
 
-Si `switch.clim_zonage_systeme_actif` est **OFF** : gainable éteint, tous les clapets fermés, fin.
-**C'est le seul chemin d'extinction du système.**
+Trois positions, et deux d'entre elles court-circuitent tout le reste :
+
+- **Arrêt** — gainable éteint, tous les clapets fermés **une seule fois**. C'est le seul chemin
+  d'extinction du système.
+- **Manuel** — toutes les vannes ouvertes **une seule fois**, puis plus aucune décision : ni
+  consigne, ni mode, ni vitesse, ni clapet. On reprend la main sur le gainable (télécommande
+  filaire ou entité `climate`), et l'unité régule sur **le thermostat du panneau**.
+- **Auto** — la séquence ci-dessous s'applique.
+
+Dans les deux premiers cas les clapets ne sont manœuvrés qu'à l'entrée du mode : une ouverture ou
+une fermeture faite à la main **tient**, on ne la combat pas au cycle suivant.
 
 ### Étape 2 — la cheminée
 
@@ -298,14 +307,36 @@ possible à tout moment avec les YAML sauvegardés (voir §10).
 
 ---
 
-## 7. Le master switch et l'automatisation de présence
+## 7. Le mode du système (Auto / Manuel / Arrêt) et l'automatisation de présence
 
-`switch.clim_zonage_systeme_actif` est le **point d'accroche unique** :
+`select.clim_zonage_mode_du_systeme` est le **point d'accroche unique** :
 
-- **ON** : le système pilote librement, selon les consignes des pièces.
-- **OFF** : tout s'arrête, et c'est le **seul** chemin d'extinction.
+- **Auto** : le système pilote librement, selon les consignes des pièces.
+- **Manuel** : **toutes les vannes s'ouvrent**, puis plus aucune décision n'est prise — ni mode, ni
+  consigne, ni vitesse, ni clapet. On reprend la main sur le gainable (télécommande filaire, ou
+  entité `climate.clim_master`), et l'unité régule sur **le thermostat du panneau**. C'est l'état à
+  utiliser pour tester, dépanner, ou laisser quelqu'un piloter à la main sans démonter la régulation.
+- **Arrêt** : tout s'arrête, et c'est le **seul** chemin d'extinction.
 
-Ce qui se passe exactement en passant sur OFF (mesuré le 03/11/2026, effet en ~3 s) :
+### Pourquoi le thermostat du panneau, et pas la température déportée
+
+En Auto, l'intégration envoie au gainable une **température déportée** (la plus froide des pièces en
+demande) : l'unité régule sur la maison, pas sur sa propre sonde. Ce mécanisme passe par le réglage
+**102** de l'unité (`select.<pont>_102_source_de_temperature`, sur « Externe (CN105 / WiFi) »).
+
+En **Manuel** et en **Arrêt**, cette température n'a plus de sens — plus personne ne la calcule
+proprement. L'intégration bascule donc le réglage 102 sur **« Télécommande filaire »**, c'est-à-dire le
+thermostat du panneau mural, et le remet sur « Externe » en revenant en Auto. Le contrôle est refait
+à chaque cycle et **écrit seulement en cas d'écart** : c'est ce qui répare tout seul un redémarrage de
+HA survenu pendant un mode manuel (sans ça, le zonage enverrait une température déportée que l'unité
+ignorerait, silencieusement).
+
+⚠️ Sans l'option « Réglage 102 de l'unité » renseignée dans les réglages globaux, ce basculement n'a
+pas lieu : l'unité reste sur la dernière température déportée reçue, puis retombe sur **sa sonde
+interne** après 15 minutes sans valeur. Le mode Manuel fonctionne quand même (vannes ouvertes, aucune
+décision), mais la régulation n'est pas celle du panneau.
+
+Ce qui se passe exactement en passant sur Arrêt (mesuré le 03/11/2026, effet en ~3 s) :
 
 - le gainable reçoit `hvac_mode: off` ;
 - **les 7 clapets sont fermés une seule fois**, à l'entrée en arrêt, sans attendre la durée de cycle
@@ -323,8 +354,8 @@ Pendant l'arrêt, la télécommande murale reprend la main sans que rien ne vien
 aucun clapet ne bouge. C'est donc l'état à utiliser pour une absence, ou pour laisser un tiers
 piloter à la main.
 
-Une automatisation de présence peut passer le système en manuel en éteignant ce switch, sans
-connaître l'intérieur du système. Aucune autre automatisation ne doit commander `climate.clim_master`
+Une automatisation de présence peut passer le système en `Arrêt` (ou en `Manuel`) en changeant
+l'option de ce sélecteur, sans connaître l'intérieur du système. Aucune autre automatisation ne doit commander `climate.clim_master`
 ni les clapets : elle serait écrasée au tick suivant, et c'est la porte ouverte aux incohérences.
 
 ---

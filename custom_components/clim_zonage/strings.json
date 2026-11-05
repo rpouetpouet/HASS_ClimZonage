@@ -60,7 +60,8 @@
           "fire_temp_min": "Feu : température mini de la pièce pour chauffer seul (°C)",
           "fire_temp_off": "Feu : température de désarmement (°C)",
           "cycle_seconds": "Période de la boucle de décision (s)",
-          "damper_course": "Durée de course d'un clapet (s)"
+          "damper_course": "Durée de course d'un clapet (s)",
+          "temp_source_select": "Réglage 102 de l'unité (source de température)"
         }
       },
       "add_zone": {

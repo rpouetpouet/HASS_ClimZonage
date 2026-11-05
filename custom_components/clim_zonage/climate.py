@@ -115,6 +115,11 @@ class ZoneClimate(CoordinatorEntity[ZonageCoordinator], ClimateEntity, RestoreEn
         zdata = self._zdata
         if zdata.get("system_off") or zdata.get("mode") == HVAC_OFF:
             return HVACAction.OFF
+        if zdata.get("manuel"):
+            # Mode manuel : le zonage ne décide plus rien. Une vanne ouverte
+            # laisse passer l'air que l'utilisateur envoie depuis le panneau
+            # (icône de ventilation), une vanne fermée ne laisse rien passer.
+            return HVACAction.FAN if zdata.get("open") else HVACAction.OFF
         if zdata.get("mode") == HVAC_FAN_ONLY:
             return HVACAction.FAN
         if zdata.get("demand"):

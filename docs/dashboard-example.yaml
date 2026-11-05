@@ -16,8 +16,8 @@ views:
         title: Système
         show_header_toggle: false
         entities:
-          - entity: switch.clim_zonage_systeme_actif
-            name: Système actif (master)
+          - entity: select.clim_zonage_mode_du_systeme
+            name: Mode du système (Auto / Manuel / Arrêt)
           - entity: select.clim_zonage_mode_global
             name: Mode
           - entity: binary_sensor.clim_zonage_chauffage_en_demande

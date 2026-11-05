@@ -2,7 +2,25 @@
 
 DOMAIN = "clim_zonage"
 NAME = "Clim Zonage"
-VERSION = "0.12.8"      # doit suivre manifest.json (source de vérité pour HACS)
+VERSION = "0.13.0"      # doit suivre manifest.json (source de vérité pour HACS)
+
+# ─── Mode du système : sélecteur à trois positions ──────────────────────────
+# `AUTO`   : le zonage régule (comportement historique du master switch ON).
+# `MANUEL` : toutes les vannes ouvertes une fois, puis plus aucune décision —
+#            ni clapet, ni mode, ni consigne, ni vitesse. L'utilisateur reprend
+#            la main sur le gainable (télécommande filaire ou entité climate).
+# `ARRET`  : moteur éteint + clapets fermés une fois (ex-master switch OFF).
+SYSTEM_AUTO = "auto"
+SYSTEM_MANUEL = "manuel"
+SYSTEM_ARRET = "arret"
+SYSTEM_MODES = [SYSTEM_AUTO, SYSTEM_MANUEL, SYSTEM_ARRET]
+SYSTEM_LABELS = {SYSTEM_AUTO: "Auto", SYSTEM_MANUEL: "Manuel", SYSTEM_ARRET: "Arrêt"}
+SYSTEM_FROM_LABEL = {v: k for k, v in SYSTEM_LABELS.items()}
+
+# Entité `select` du réglage 102 de l'unité (source de température : sonde
+# interne / télécommande filaire / externe CN105). Optionnelles : sans elle,
+# l'intégration ne touche pas au réglage et le mode MANUEL n'est pas complet.
+CONF_TEMP_SOURCE_SELECT = "temp_source_select"
 
 # ─── Clés de configuration (data de l'entrée) ────────────────────────────────
 CONF_ENGINE = "engine_entity"          # climate.* du gainable (moteur)
