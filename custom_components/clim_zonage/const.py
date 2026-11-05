@@ -2,7 +2,7 @@
 
 DOMAIN = "clim_zonage"
 NAME = "Clim Zonage"
-VERSION = "0.13.1"      # doit suivre manifest.json (source de vérité pour HACS)
+VERSION = "0.13.2"      # doit suivre manifest.json (source de vérité pour HACS)
 
 # ─── Mode du système : sélecteur à trois positions ──────────────────────────
 # `AUTO`   : le zonage régule (comportement historique du master switch ON).
@@ -33,6 +33,13 @@ ZERO_PULSE_S = 20
 # réglage 102 : sur un gainable, écrire (ou même lire) un function setting peut
 # ÉTEINDRE l'unité (issue #610 du fork, confirmée sur deux installations).
 POWER_RESYNC_WINDOW_S = 120
+
+# Intervalle minimal entre deux réaffirmations du réglage 102 HORS changement de
+# mode. L'état de l'entité `select` retarde (il n'est rafraîchi qu'au poll ISU),
+# donc on s'appuie sur l'ordre qu'on vient de donner, pas sur ce qu'elle affiche :
+# une écriture par changement de mode, plus un filet de sécurité horaire au cas
+# où l'unité aurait été modifiée au panneau entre-temps.
+SOURCE_REASSERT_S = 3600
 
 # ─── Clés de configuration (data de l'entrée) ────────────────────────────────
 CONF_ENGINE = "engine_entity"          # climate.* du gainable (moteur)

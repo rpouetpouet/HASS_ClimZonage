@@ -97,6 +97,7 @@ from .const import (
     SYSTEM_MODES,
     TEMP_STEP,
     POWER_RESYNC_WINDOW_S,
+    SOURCE_REASSERT_S,
     ZERO_PULSE_S,
 )
 from .logic import (
@@ -215,6 +216,10 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         self._manual_opened = False  # clapets déjà tous ouverts pour ce mode manuel ?
         self._source_last_try = 0.0  # dernier essai d'écriture du réglage 102
         self._source_write_at = 0.0  # horodatage de la dernière écriture réussie
+        self._source_last_write = 0.0  # anti-doublon immédiat entre deux cycles
+        # Vrai quand un changement de mode demande d'affirmer le réglage 102 :
+        # c'est ce drapeau, et non l'état du select, qui décide d'écrire.
+        self._source_needs_assert = True
         # « pic à 0 » vers le pont : fait une fois par entrée en mode manuel/arrêt
         self._zero_done = False
         self._zero_until = 0.0
@@ -985,17 +990,30 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         if state is None:
             return
         wanted = pick_source_option(state.attributes.get("options") or [], panel)
-        if not wanted or state.state == wanted:
+        if not wanted:
             return
-        # Anti-boucle : si l'écriture ne « prend » pas (bus occupé, unité qui
-        # refuse), on ne la rejoue pas à chaque cycle de 30 s — le bus CN105 est
-        # à 2400 bauds et demi-duplex, une écriture insistante sature la lecture
-        # des réglages (mesuré : 13 salves `Power: OFF` en 130 s).
-        now = time.monotonic()
-        if now - self._source_last_try < 300:
+        now = time.time()
+        if state.state == wanted:
+            # Convergé : plus rien à affirmer pour ce mode.
+            self._source_needs_assert = False
+            return
+        # On écrit sur CHANGEMENT DE MODE (le seul moment où la valeur voulue
+        # change vraiment), puis au maximum une fois par heure en filet de
+        # sécurité si l'unité a été retouchée au panneau. On ne se fie donc plus
+        # à l'état de l'entité `select`, qui retarde d'un poll ISU : la croire
+        # quand elle affiche déjà la bonne option ferait sauter l'écriture, et la
+        # croire quand elle affiche l'ancienne ferait écrire pour rien — chaque
+        # écriture pouvant éteindre le gainable (issue #610).
+        if not self._source_needs_assert and now - self._source_last_try < SOURCE_REASSERT_S:
+            return
+        if now - self._source_last_write < 30:
+            # Deux cycles trop rapprochés : un changement de mode juste après une
+            # écriture ne doit pas produire deux trames ISU d'affilée.
             return
         self._source_last_try = now
-        self._source_write_at = time.time()
+        self._source_last_write = now
+        self._source_needs_assert = False
+        self._source_write_at = now
         await self.hass.services.async_call(
             "select",
             "select_option",
@@ -1169,6 +1187,7 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         self._zero_until = 0.0
         self._power_resync_done = False
         self._source_write_at = 0.0
+        self._source_needs_assert = True
         if self._zero_cancel is not None:
             self._zero_cancel()
             self._zero_cancel = None
