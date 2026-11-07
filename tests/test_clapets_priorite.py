@@ -94,6 +94,7 @@ mk(
     "homeassistant.helpers.event",
     async_track_state_change_event=lambda *a, **k: (lambda: None),
     async_track_time_interval=lambda *a, **k: (lambda: None),
+    async_call_later=lambda *a, **k: (lambda: None),
     EVENT_HOMEASSISTANT_STARTED="started",
 )
 _dt = mk(
@@ -170,7 +171,8 @@ def _coordinator(etats_clapets, options=None):
     hass = _FakeHass(etats_clapets)
     c = coordinator_mod.ZonageCoordinator(hass, _Entry(), zones, options or {})
     c.hass = hass
-    c.active = True
+    # `active` est devenu une propriété en lecture (dérivée de system_mode).
+    c.system_mode = coordinator_mod.SYSTEM_AUTO
     c.mode = "heat"
     c.zone_targets = {"alice": 21.0, "sam": 21.0}
     c.zone_modes = {"alice": "heat", "sam": "heat"}
@@ -263,4 +265,37 @@ def test_apres_amorcage_les_clapets_bougent():
     clapets = [call for call in c.hass.services.calls if call[0] == "cover"]
     assert any("cover.valvealice" in str(call[2]) for call in clapets), (
         f"Alice demande, son clapet doit s'ouvrir : {clapets}"
+    )
+
+
+# ─── 4. zone à deux clapets en état MIXTE (régression du 07/11/2026) ───────
+def test_zone_mixte_recommande_le_clapet_reste_ferme():
+    """sam_east ouvert mais sam_west fermé : la zone doit être rattrapée.
+
+    L'ancienne décision `is_open = any(...)` considérait la zone comme « déjà
+    ouverte » dès qu'un clapet l'était : le clapet resté fermé n'était plus
+    jamais commandé et la salle à manger chauffait sur une seule bouche
+    (constaté le 07/11/2026, après un échec de communication Shelly sur
+    `cover.sam_west`). On attend désormais l'ordre vers `sam_west` seul.
+    """
+    etats = {**_ouvert("cover.sam_east"), **_ferme("cover.sam_west"), **_ferme("cover.valvealice")}
+    c = _coordinator(etats, {const.CONF_MIN_CYCLE: 0})
+    asyncio.run(c._async_apply_dampers({"sam"}, demanding={"sam"}))
+    ouvertures = [call for call in c.hass.services.calls if call[1] == "open_cover"]
+    assert ouvertures, f"la zone mixte doit être recomandée : {c.hass.services.calls}"
+    cibles = str(ouvertures[0][2])
+    assert "cover.sam_west" in cibles, f"sam_west devait être commandé : {cibles}"
+    assert "cover.sam_east" not in cibles, (
+        f"sam_east est déjà ouvert, inutile de le rejouer : {cibles}"
+    )
+
+
+# ─── 5. une zone déjà entièrement ouverte ne reçoit rien ───────────────────
+def test_zone_deja_ouverte_n_est_pas_recommandee():
+    """Pas de régression inverse : une zone complète ne doit rien recevoir."""
+    etats = {**_ouvert("cover.sam_east"), **_ouvert("cover.sam_west"), **_ferme("cover.valvealice")}
+    c = _coordinator(etats, {const.CONF_MIN_CYCLE: 0})
+    asyncio.run(c._async_apply_dampers({"sam"}, demanding={"sam"}))
+    assert c.hass.services.calls == [], (
+        f"une zone déjà ouverte ne doit produire aucun appel : {c.hass.services.calls}"
     )

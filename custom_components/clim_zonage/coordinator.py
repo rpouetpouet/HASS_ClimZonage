@@ -1106,18 +1106,28 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
                 # puis verrouillé 20 min par min_cycle).
                 continue
             states = [self.hass.states.get(d) for d in zone.dampers]
-            known = [s for s in states if s is not None]
+            known = [(d, s) for d, s in zip(zone.dampers, states) if s is not None]
             if not known:
                 continue
             should_open = zone.uid in wanted
-            is_open = any(s.state in (STATE_OPEN, STATE_OPENING) for s in known)
-            is_closed = all(s.state in (STATE_CLOSED, STATE_CLOSING) for s in known)
-            if not force_all and should_open == is_open:
-                continue
-            if should_open and not is_closed and not (force or force_all):
-                continue
-            if not (force or force_all) and not should_open and not is_open:
-                continue
+            # Un clapet est « dans l'état voulu » s'il est ouvert (ou en train de
+            # s'ouvrir) quand on veut ouvrir, fermé (ou en train de se fermer)
+            # quand on veut fermer.
+            goal = (STATE_OPEN, STATE_OPENING) if should_open else (STATE_CLOSED, STATE_CLOSING)
+            # On ne commande QUE les clapets qui ne sont pas déjà dans l'état voulu.
+            # Avant, la décision reposait sur `any(...)` : une zone de deux clapets
+            # dont un seul avait répondu était vue comme « déjà ouverte », et le
+            # second n'était plus JAMAIS commandé. Constaté le 07/11/2026 sur la
+            # salle à manger : `sam_east` ouvert, `sam_west` fermé (l'appel Shelly
+            # avait échoué une fois), et la zone figée à une seule bouche jusqu'à
+            # une recalibration manuelle. Un échec ponctuel ne doit pas masquer
+            # durablement le clapet qui n'a pas bougé.
+            if force_all:
+                targets = [d for d, _s in known]
+            else:
+                targets = [d for d, s in known if s.state not in goal]
+                if not targets:
+                    continue
             last = self._last_toggle.get(zone.uid, 0.0)
             # La décharge cède immédiatement : elle ne sert qu'au débit, donc sa
             # fermeture n'a aucune raison d'attendre le verrou anti-battement.
@@ -1134,7 +1144,7 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
             await self.hass.services.async_call(
                 "cover",
                 service,
-                {ATTR_ENTITY_ID: zone.dampers},
+                {ATTR_ENTITY_ID: targets},
                 blocking=False,
             )
             self._last_toggle[zone.uid] = now

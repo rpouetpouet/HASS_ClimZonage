@@ -1,13 +1,15 @@
 {
   "domain": "clim_zonage",
   "name": "Clim Zonage",
-  "codeowners": ["@rpouetpouet"],
+  "codeowners": [
+    "@rpouetpouet"
+  ],
   "config_flow": true,
   "documentation": "https://github.com/rpouetpouet/HASS_ClimZonage",
   "issue_tracker": "https://github.com/rpouetpouet/HASS_ClimZonage/issues",
   "iot_class": "local_push",
   "integration_type": "hub",
   "quality_scale": "custom",
-  "version": "0.13.3",
+  "version": "0.13.4",
   "requirements": []
 }

@@ -111,6 +111,7 @@ mk("homeassistant.core", HomeAssistant=object, callback=lambda f: f)
 mk("homeassistant.helpers.event",
    async_track_state_change_event=lambda *a, **k: (lambda: None),
    async_track_time_interval=lambda *a, **k: (lambda: None),
+   async_call_later=lambda *a, **k: (lambda: None),
    EVENT_HOMEASSISTANT_STARTED="started")
 
 
