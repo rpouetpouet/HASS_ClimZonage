@@ -86,6 +86,7 @@ GLOBAL_DEFAULTS: dict[str, Any] = {
     CONF_SENSOR_GRACE_S: DEFAULT_SENSOR_GRACE_S,
     CONF_SENSOR_FROZEN_H: DEFAULT_SENSOR_FROZEN_H,
     CONF_TEMP_SOURCE_SELECT: "",
+    CONF_FIREPLACE: "",
 }
 
 
@@ -242,6 +243,17 @@ def _global_schema(current: dict) -> vol.Schema:
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="select")
             ),
+            # Sonde du panache de la cheminée. Elle n'était réglable qu'à la
+            # création de l'entrée : la moindre renomination de l'entité cassait
+            # le chien de garde sans aucun moyen de la repointer depuis l'UI.
+            vol.Optional(
+                CONF_FIREPLACE,
+                description={"suggested_value": cur[CONF_FIREPLACE] or None},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain="sensor", device_class="temperature"
+                )
+            ),
         }
     )
 
@@ -365,6 +377,7 @@ class ClimZonageOptionsFlow(OptionsFlow):
             # chaîne vide, sinon `options.get(...)` rend None et le test `if not
             # entity` du coordinateur se comporte différemment d'une absence.
             data[CONF_TEMP_SOURCE_SELECT] = data.get(CONF_TEMP_SOURCE_SELECT) or ""
+            data[CONF_FIREPLACE] = data.get(CONF_FIREPLACE) or ""
             data[CONF_ZONES] = self._zones()
             return self.async_create_entry(title="", data=data)
         current = {**self.entry.data, **self.entry.options}

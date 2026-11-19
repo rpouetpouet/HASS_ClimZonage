@@ -191,7 +191,11 @@ class ZonageCoordinator(DataUpdateCoordinator[ZonageState]):
         self.options = options
 
         self.engine: str = entry.data[CONF_ENGINE]
-        self.fireplace_sensor: str | None = entry.data.get(CONF_FIREPLACE)
+        # Options d'abord : la sonde de panache est éditable depuis l'UI (options)
+        # sans réécrire entry.data.
+        self.fireplace_sensor: str | None = options.get(CONF_FIREPLACE) or entry.data.get(
+            CONF_FIREPLACE
+        )
 
         # État persisté par les entités (source de vérité unique)
         # `system_mode` remplace l'ancien booléen `active` : Auto / Manuel / Arrêt.
